@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Driver Dashboard — IIIT Dharwad BusTracker</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    .bus-selector-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .bus-select-card {
+      padding: 16px;
+      background: rgba(15, 23, 42, 0.5);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: var(--transition);
+      text-align: center;
+    }
+    .bus-select-card:hover {
+      border-color: var(--accent);
+      background: rgba(6, 182, 212, 0.05);
+    }
+    .bus-select-card.selected {
+      border-color: var(--accent);
+      background: rgba(6, 182, 212, 0.1);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+    .bus-select-card .bus-icon {
+      font-size: 2rem;
+      margin-bottom: 8px;
+    }
+    .bus-select-card .bus-number {
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--text-primary);
+    }
+    .bus-select-card .bus-route {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+    .bus-select-card .bus-status {
+      font-size: 0.7rem;
+      margin-top: 6px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .bus-select-card .bus-status.inactive { color: var(--text-muted); }
+    .bus-select-card .bus-status.active { color: var(--success); }
+
+    .driver-map-container {
+      height: 260px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--glass-border);
+      overflow: hidden;
+      margin-top: 12px;
+      background: rgba(10, 14, 23, 0.5);
+    }
+    .driver-map-container .map { height: 100%; width: 100%; }
+
+    .tracking-active-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 768px) {
+      .tracking-active-grid { grid-template-columns: 1fr; }
+    }
+
+    .gps-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .gps-stat {
+      padding: 10px 14px;
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 8px;
+    }
+    .gps-stat-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .gps-stat-value {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="dashboard-page">
+    <header class="header">
+      <h1> Driver Dashboard</h1>
+      <div class="user-info">
+        <span id="userName"></span>
+        <button class="btn btn-small btn-secondary" onclick="logout()">Logout</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- Driver Info Card -->
+      <div class="card" style="margin-bottom:16px;">
+        <h2> Driver Information</h2>
+        <div class="info-grid-2">
+          <div class="data-row"><span class="data-label">Name</span><span class="data-value" id="driverName">—</span></div>
+          <div class="data-row"><span class="data-label">Email</span><span class="data-value" id="driverEmail">—</span></div>
+          <div class="data-row"><span class="data-label">Phone</span><span class="data-value" id="driverPhone">—</span></div>
+          <div class="data-row"><span class="data-label">Role</span><span class="data-value" id="driverRole">—</span></div>
+        </div>
+      </div>
+
+      <!-- BUS SELECTOR (shown when no active trip) -->
+      <div id="busSelectorCard" class="card">
+        <h2> Select Bus for This Trip</h2>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:4px;">Choose the bus you will be driving, then start tracking.</p>
+        <div id="busSelectorGrid" class="bus-selector-grid">
+          <p class="loading-text">Loading buses...</p>
+        </div>
+        <div style="margin-top:16px;display:flex;align-items:center;gap:12px;">
+          <button class="btn btn-primary btn-large" id="startTrackingBtn" onclick="startTracking()" disabled>
+            Start Tracking
+          </button>
+          <span id="selectedBusLabel" style="color:var(--text-muted);font-size:0.9rem;"></span>
+        </div>
+        <div id="startError" class="error-message hidden"></div>
+      </div>
+
+      <!-- TRACKING ACTIVE (shown when trip is active) -->
+      <div id="trackingCard" class="card hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <h2> Tracking Active</h2>
+          <span class="badge badge-live" id="trackingBadge">LIVE</span>
+        </div>
+        <div class="tracking-active-grid">
+          <!-- Left: Map -->
+          <div>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:4px;">Your current location</p>
+            <div class="driver-map-container">
+              <div id="driverMap" class="map"></div>
+            </div>
+          </div>
+          <!-- Right: Stats -->
+          <div>
+            <div id="gpsStatusReady" class="gps-status">
+              <div class="status-icon pulse">&#127758;</div>
+              <span id="gpsStatusText">Waiting for GPS...</span>
+            </div>
+            <div class="gps-stats">
+              <div class="gps-stat">
+                <div class="gps-stat-label">Latitude</div>
+                <div class="gps-stat-value" id="currentLat">—</div>
+              </div>
+              <div class="gps-stat">
+                <div class="gps-stat-label">Longitude</div>
+                <div class="gps-stat-value" id="currentLng">—</div>
+              </div>
+              <div class="gps-stat">
+                <div class="gps-stat-label">Speed</div>
+                <div class="gps-stat-value" id="currentSpeed">—</div>
+              </div>
+              <div class="gps-stat">
+                <div class="gps-stat-label">Accuracy</div>
+                <div class="gps-stat-value" id="currentAccuracy">—</div>
+              </div>
+              <div class="gps-stat">
+                <div class="gps-stat-label">Updates Sent</div>
+                <div class="gps-stat-value" id="updatesSent">0</div>
+              </div>
+              <div class="gps-stat">
+                <div class="gps-stat-label">Last Update</div>
+                <div class="gps-stat-value" id="lastUpdateTime">—</div>
+              </div>
+            </div>
+            <button class="btn btn-danger btn-large btn-full" style="margin-top:16px;" onclick="endTrip()">
+              End Trip
+            </button>
+            <div id="trackingError" class="error-message hidden"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <p>IIIT Dharwad BusTracker — Frugal Innovation Project</p>
+    </footer>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/js/gps-utils.js"></script>
+  <script>
+    // ==================== STATE ====================
+    const token = getToken();
+    const user = getCurrentUser();
+    let allBuses = [];
+    let selectedBusId = null;
+    let watchId = null;
+    let currentTrip = null;
+    let updatesSentCount = 0;
+    let lastSentLocation = null;
+    let driverMap = null;
+    let driverMarker = null;
+    let socket = null;
+
+    const MIN_DISTANCE_METERS = 15;
+    const MIN_INTERVAL_SECONDS = 10;
+
+    // ==================== INIT ====================
+    if (!requireAuth("DRIVER")) throw new Error("Not authenticated");
+
+    document.getElementById("userName").textContent = `${user.name} (Driver)`;
+    document.getElementById("driverName").textContent = user.name;
+    document.getElementById("driverEmail").textContent = user.email;
+    document.getElementById("driverPhone").textContent = user.phone || "Not provided";
+    document.getElementById("driverRole").textContent = user.role;
+
+    loadBuses();
+    checkActiveTrip();
+
+    // ==================== LOGOUT ====================
+    function logout() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      if (socket) socket.disconnect();
+      if (driverMap) { driverMap.remove(); driverMap = null; }
+      logout("/");
+    }
+
+    // ==================== LOAD ALL BUSES ====================
+    async function loadBuses() {
+      try {
+        const { status, data } = await apiCall("/api/buses");
+        if (status === 200 && data.buses) {
+          allBuses = data.buses;
+          renderBusSelector();
+        }
+      } catch (err) {
+        document.getElementById("busSelectorGrid").innerHTML =
+          '<p style="color:var(--error);text-align:center;">Failed to load buses.</p>';
+      }
+    }
+
+    function renderBusSelector() {
+      const grid = document.getElementById("busSelectorGrid");
+      if (allBuses.length === 0) {
+        grid.innerHTML = '<p style="color:var(--text-muted);text-align:center;grid-column:1/-1;">No buses available. Contact admin.</p>';
+        return;
+      }
+
+      grid.innerHTML = allBuses.map(bus => {
+        const statusClass = bus.status === "ACTIVE" ? "active" : "inactive";
+        const statusText = bus.status === "ACTIVE" ? "Active" : "Available";
+        return `
+          <div class="bus-select-card" id="bus-card-${bus.id}" onclick="selectBus(${bus.id})">
+            <div class="bus-icon">&#128652;</div>
+            <div class="bus-number">${escapeHtml(bus.busNumber)}</div>
+            <div class="bus-route">${escapeHtml(bus.routeName || "No route")}</div>
+            <div class="bus-status ${statusClass}">${statusText}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function selectBus(busId) {
+      // Deselect previous
+      if (selectedBusId !== null) {
+        const prev = document.getElementById("bus-card-" + selectedBusId);
+        if (prev) prev.classList.remove("selected");
+      }
+      selectedBusId = busId;
+      const card = document.getElementById("bus-card-" + busId);
+      if (card) card.classList.add("selected");
+
+      const bus = allBuses.find(b => b.id === busId);
+      document.getElementById("selectedBusLabel").textContent =
+        bus ? `Selected: ${bus.busNumber}` : "";
+      document.getElementById("startTrackingBtn").disabled = false;
+    }
+
+    // ==================== START TRACKING ====================
+    async function startTracking() {
+      if (!selectedBusId) return;
+
+      hideError("startError");
+      const btn = document.getElementById("startTrackingBtn");
+      btn.disabled = true;
+      btn.textContent = "Starting...";
+
+      try {
+        // 1. Create the trip
+        const { status, data } = await apiCall("/api/trips/start", {
+          method: "POST",
+          body: JSON.stringify({ busId: selectedBusId }),
+        });
+
+        if (status !== 201) {
+          showError("startError", data.message || "Failed to start trip.");
+          btn.disabled = false;
+          btn.textContent = "Start Tracking";
+          return;
+        }
+
+        currentTrip = data.trip;
+
+        // 2. Show tracking UI
+        document.getElementById("busSelectorCard").classList.add("hidden");
+        document.getElementById("trackingCard").classList.remove("hidden");
+
+        // 3. Init map
+        initDriverMap();
+
+        // 4. Connect socket
+        connectSocket();
+
+        // 5. Start GPS
+        startGPS();
+
+      } catch (err) {
+        console.error("Start tracking error:", err);
+        showError("startError", "Network error. Please try again.");
+        btn.disabled = false;
+        btn.textContent = "Start Tracking";
+      }
+    }
+
+    // ==================== END TRIP ====================
+    async function endTrip() {
+      hideError("trackingError");
+
+      // Stop GPS
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+
+      try {
+        const { status } = await apiCall("/api/trips/stop", { method: "POST" });
+        if (status === 200) {
+          resetTrackingState();
+        } else {
+          showError("trackingError", "Failed to end trip.");
+        }
+      } catch (err) {
+        showError("trackingError", "Network error.");
+      }
+    }
+
+    function resetTrackingState() {
+      currentTrip = null;
+      selectedBusId = null;
+      updatesSentCount = 0;
+      lastSentLocation = null;
+
+      // Reset bus selector
+      document.querySelectorAll(".bus-select-card").forEach(c => c.classList.remove("selected"));
+      document.getElementById("selectedBusLabel").textContent = "";
+      document.getElementById("startTrackingBtn").disabled = true;
+      document.getElementById("startTrackingBtn").textContent = "Start Tracking";
+
+      // Show selector, hide tracking
+      document.getElementById("trackingCard").classList.add("hidden");
+      document.getElementById("busSelectorCard").classList.remove("hidden");
+
+      if (socket) { socket.disconnect(); socket = null; }
+      if (driverMap) { driverMap.remove(); driverMap = null; driverMarker = null; }
+    }
+
+    // ==================== CHECK ACTIVE TRIP ON LOAD ====================
+    async function checkActiveTrip() {
+      try {
+        const { data } = await apiCall("/api/trips/my-trip");
+        if (data.trip) {
+          currentTrip = data.trip;
+          selectedBusId = currentTrip.busId;
+          document.getElementById("busSelectorCard").classList.add("hidden");
+          document.getElementById("trackingCard").classList.remove("hidden");
+          initDriverMap();
+          connectSocket();
+          startGPS();
+          if (data.latestLocation) {
+            updateLocationDisplay(data.latestLocation.latitude, data.latestLocation.longitude, data.latestLocation);
+          }
+        }
+      } catch (err) {
+        // No active trip — show bus selector
+      }
+    }
+
+    // ==================== GPS TRACKING ====================
+    function startGPS() {
+      if (!navigator.geolocation) {
+        showError("trackingError", "Geolocation is not supported by your browser.");
+        return;
+      }
+
+      document.getElementById("gpsStatusText").textContent = "Acquiring GPS signal...";
+
+      watchId = navigator.geolocation.watchPosition(
+        handleGPSSuccess,
+        handleGPSError,
+        {
+          enableHighAccuracy: true,
+          timeout: 30000,
+          maximumAge: 5000,
+        }
+      );
+    }
+
+    function handleGPSSuccess(position) {
+      const { latitude, longitude, accuracy, speed, heading } = position.coords;
+      updateLocationDisplay(latitude, longitude, position.coords);
+      updateDriverMapMarker(latitude, longitude);
+      sendLocationIfNeeded(latitude, longitude, accuracy, speed, heading);
+    }
+
+    function handleGPSError(error) {
+      console.error("GPS Error:", error);
+      let message = "GPS error occurred.";
+      if (error.code === error.PERMISSION_DENIED) {
+        message = "Location permission denied. Please allow location access and refresh.";
+      } else if (error.code === error.POSITION_UNAVAILABLE) {
+        message = "GPS signal unavailable. Check your device GPS settings.";
+      } else if (error.code === error.TIMEOUT) {
+        message = "GPS timeout. Retrying...";
+      }
+      document.getElementById("gpsStatusText").textContent = "GPS Error";
+      showError("trackingError", message);
+    }
+
+    function updateLocationDisplay(lat, lng, coords) {
+      document.getElementById("gpsStatusText").textContent = "GPS Active";
+      document.getElementById("currentLat").textContent = lat.toFixed(6);
+      document.getElementById("currentLng").textContent = lng.toFixed(6);
+      document.getElementById("currentAccuracy").textContent = coords.accuracy ? `${coords.accuracy.toFixed(1)}m` : "N/A";
+      document.getElementById("currentSpeed").textContent =
+        coords.speed !== null && coords.speed !== undefined
+          ? `${(coords.speed * 3.6).toFixed(1)} km/h`
+          : "0 km/h";
+    }
+
+    async function sendLocationIfNeeded(lat, lng, accuracy, speed, heading) {
+      if (!currentTrip) return;
+
+      const result = shouldSendUpdate(
+        lastSentLocation?.lat,
+        lastSentLocation?.lng,
+        lat, lng,
+        lastSentLocation?.timestamp,
+        MIN_DISTANCE_METERS,
+        MIN_INTERVAL_SECONDS
+      );
+
+      if (!result.shouldSend) return;
+
+      try {
+        const { status } = await apiCall("/api/location/update", {
+          method: "POST",
+          body: JSON.stringify({
+            busId: currentTrip.busId,
+            latitude: lat,
+            longitude: lng,
+            speed: speed ? Math.round(speed * 3.6 * 10) / 10 : null,
+            heading: heading || null,
+            accuracy: accuracy || null,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+
+        if (status === 201) {
+          updatesSentCount++;
+          document.getElementById("updatesSent").textContent = updatesSentCount;
+          document.getElementById("lastUpdateTime").textContent = "Just now";
+
+          lastSentLocation = {
+            lat: lat, lng: lng,
+            timestamp: new Date().toISOString(),
+          };
+        }
+      } catch (err) {
+        console.error("Failed to send location:", err);
+      }
+    }
+
+    // ==================== DRIVER MAP ====================
+    function initDriverMap() {
+      if (driverMap) { driverMap.remove(); driverMap = null; }
+
+      driverMap = L.map("driverMap", {
+        zoomControl: true,
+        attributionControl: true,
+      });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap",
+        maxZoom: 19,
+      }).addTo(driverMap);
+
+      const driverIcon = L.divIcon({
+        className: "",
+        html: '<div style="font-size:28px;transform:translate(-50%,-100%);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.4));">&#128664;</div>',
+        iconSize: [36, 36],
+        iconAnchor: [18, 36],
+      });
+
+      driverMarker = L.marker([0, 0], { icon: driverIcon, opacity: 0 }).addTo(driverMap);
+    }
+
+    function updateDriverMapMarker(lat, lng) {
+      if (!driverMarker || !driverMap) return;
+      driverMarker.setLatLng([lat, lng]);
+      driverMarker.setOpacity(1);
+      driverMap.setView([lat, lng], 16);
+    }
+
+    // ==================== SOCKET.IO ====================
+    function connectSocket() {
+      if (socket) { try { socket.disconnect(); } catch(e) {} }
+
+      socket = io({
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000,
+      });
+
+      socket.on("connect", () => {
+        if (currentTrip) {
+          socket.emit("driver:join-bus", currentTrip.busId);
+        }
+      });
+
+      socket.on("disconnect", () => console.log("Socket disconnected"));
+      socket.on("reconnect", () => {
+        if (currentTrip) socket.emit("driver:join-bus", currentTrip.busId);
+      });
+    }
+
+    // ==================== UPDATE "LAST UPDATE" TEXT ====================
+    setInterval(() => {
+      if (!lastSentLocation) return;
+      const elapsed = Math.floor((Date.now() - new Date(lastSentLocation.timestamp).getTime()) / 1000);
+      const el = document.getElementById("lastUpdateTime");
+      if (!el) return;
+      if (elapsed < 15) el.textContent = "Just now";
+      else if (elapsed < 60) el.textContent = `${elapsed}s ago`;
+      else el.textContent = `${Math.floor(elapsed / 60)}m ago`;
+    }, 15000);
+  </script>
+</body>
+</html>

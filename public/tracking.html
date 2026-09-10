@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Bus Tracking — IIIT Dharwad BusTracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .bus-card-info {
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      border-top: 1px solid var(--glass-border);
+    }
+    .bus-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .bus-detail-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 0.82rem;
+      border-bottom: 1px solid rgba(148,163,184,0.05);
+    }
+    .bus-detail-row:last-child { border-bottom: none; }
+    .bus-detail-label { color: var(--text-muted); }
+    .bus-detail-value { color: var(--text-primary); font-weight: 500; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <canvas id="particles-canvas"></canvas>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <a href="/" class="navbar-brand">
+      <div class="logo-icon">🚌</div>
+      <div class="logo-text">IIIT Dharwad <span>BusTracker</span></div>
+    </a>
+    <div class="nav-links">
+      <a href="/tracking.html" class="nav-link nav-primary">Refresh</a>
+      <a href="/login.html?role=ADMIN" class="nav-link">Admin</a>
+      <a href="/login.html?role=DRIVER" class="nav-link">Driver</a>
+    </div>
+  </nav>
+
+  <!-- Tracking Page -->
+  <div class="container" style="padding-top: 80px;">
+    <div class="tracking-header">
+      <div>
+        <h1>Live Bus Tracking</h1>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 4px;">
+          Real-time location of all IIIT Dharwad college buses
+        </p>
+      </div>
+      <div class="live-indicator">
+        <span class="live-dot"></span>
+        <span id="connectionStatus">Connecting...</span>
+      </div>
+    </div>
+
+    <div id="busGrid" class="bus-grid">
+      <div class="loading-text" style="grid-column: 1 / -1; text-align: center; padding: 60px; color: var(--text-muted);">
+        Loading bus data...
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>IIIT Dharwad BusTracker — Frugal Innovation Project</p>
+  </footer>
+
+  <script src="/js/app.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/gps-utils.js"></script>
+  <script>
+    // ==================== STATE ====================
+    let socket = null;
+    let buses = [];
+    let busCards = {};  // { busId: { map, marker, lastTimestamp, lastLat, lastLng } }
+
+    // College location from app.js configuration
+    const COLLEGE_LAT = window.COLLEGE_LAT;
+    const COLLEGE_LNG = window.COLLEGE_LNG;
+
+    // ==================== INIT ====================
+    document.addEventListener("DOMContentLoaded", () => {
+      loadBuses();
+      connectSocket();
+      setInterval(updateTimeStamps, 10000);
+    });
+
+    // ==================== LOAD BUSES ====================
+    async function loadBuses() {
+      try {
+        const response = await fetch("/api/public/buses");
+        const data = await response.json();
+        buses = data.buses || [];
+
+        if (buses.length === 0) {
+          document.getElementById("busGrid").innerHTML =
+            '<p style="grid-column:1/-1;text-align:center;padding:60px;color:var(--text-muted);">No buses configured yet. Contact your admin.</p>';
+          return;
+        }
+
+        renderBusGrid();
+      } catch (err) {
+        console.error("Failed to load buses:", err);
+        document.getElementById("busGrid").innerHTML =
+          '<p style="grid-column:1/-1;text-align:center;padding:60px;color:var(--error);">Failed to load buses. Please refresh the page.</p>';
+      }
+    }
+
+    // ==================== RENDER BUS GRID ====================
+    function renderBusGrid() {
+      const grid = document.getElementById("busGrid");
+      const existingIds = new Set(buses.map(b => b.id));
+
+      // Clean up removed buses
+      Object.keys(busCards).forEach(id => {
+        if (!existingIds.includes(parseInt(id))) {
+          const card = busCards[id];
+          if (card && card.map) card.map.remove();
+          delete busCards[id];
+        }
+      });
+
+      const html = buses.map(bus => {
+        return `
+          <div class="bus-card" id="bus-card-${bus.id}">
+            <div class="bus-card-header">
+              <div class="bus-identity">
+                <div class="bus-icon">🚌</div>
+                <div>
+                  <h3>${escapeHtml(bus.busNumber)}</h3>
+                  <div class="bus-route">${escapeHtml(bus.routeName || "No route assigned")}</div>
+                </div>
+              </div>
+              <div class="status-row">
+                <span class="badge badge-offline" id="bus-status-${bus.id}">LOADING</span>
+              </div>
+            </div>
+            <div class="bus-map-container">
+              <div id="map-${bus.id}" class="map"></div>
+            </div>
+            <div class="bus-card-info">
+              <div class="bus-meta">
+                👤 ${escapeHtml(bus.driverName || "Unassigned")}
+              </div>
+              <span id="bus-time-${bus.id}" style="font-size:0.8rem;color:var(--text-muted);">—</span>
+            </div>
+            <div class="bus-details" id="bus-details-${bus.id}" style="padding: 0 20px 14px;"></div>
+          </div>
+        `;
+      }).join("");
+
+      grid.innerHTML = html;
+
+      buses.forEach(bus => {
+        if (!busCards[bus.id] || !busCards[bus.id].map) {
+          initBusMap(bus);
+        }
+        fetchBusLocation(bus.id);
+      });
+    }
+
+    // ==================== MAP ====================
+    function initBusMap(bus) {
+      const mapEl = document.getElementById("map-" + bus.id);
+      if (!mapEl) return;
+
+      const map = L.map("map-" + bus.id, {
+        zoomControl: true,
+        attributionControl: true,
+      }).setView([COLLEGE_LAT, COLLEGE_LNG], 14);
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap",
+        maxZoom: 19,
+      }).addTo(map);
+
+      // College marker
+      const collegeIcon = L.divIcon({
+        className: "",
+        html: '<div class="college-marker-icon">🏫</div>',
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      });
+      L.marker([COLLEGE_LAT, COLLEGE_LNG], { icon: collegeIcon })
+        .addTo(map)
+        .bindPopup("College Location");
+
+      // Bus marker (invisible initially)
+      const busIcon = L.divIcon({
+        className: "",
+        html: '<div class="bus-marker-icon">🚌</div>',
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
+      });
+
+      const busMarker = L.marker([COLLEGE_LAT, COLLEGE_LNG], {
+        opacity: 0,
+        icon: busIcon,
+      }).addTo(map);
+
+      busCards[bus.id] = {
+        map: map,
+        marker: busMarker,
+        lastTimestamp: null,
+        lastLat: null,
+        lastLng: null,
+      };
+    }
+
+    // ==================== FETCH LOCATION ====================
+    async function fetchBusLocation(busId) {
+      try {
+        const response = await fetch("/api/public/location/" + busId);
+        const data = await response.json();
+
+        const card = busCards[busId];
+        if (!card) return;
+
+        if (!data.location) {
+          // No location data — check trip status
+          if (data.trip && data.trip.status === "ACTIVE") {
+            updateBusStatus(busId, "WAITING", "Waiting for GPS...");
+            updateBusDetails(busId, { status: "waiting", message: "Trip started, awaiting first GPS fix." });
+          } else {
+            updateBusStatus(busId, "NOT_STARTED", "Not started");
+            updateBusDetails(busId, { status: "not_started", message: "Driver has not started the trip." });
+          }
+          return;
+        }
+
+        const loc = data.location;
+        const freshness = data.freshness || {};
+        const trip = data.trip;
+
+        // Determine status
+        if (trip && trip.status === "ACTIVE") {
+          if (freshness.status === "LIVE" || freshness.status === "AGING") {
+            updateBusStatus(busId, "LIVE", freshness.status === "LIVE" ? "Live" : freshness.message);
+          } else {
+            updateBusStatus(busId, "STALE", freshness.message || "Location stale");
+          }
+        } else {
+          updateBusStatus(busId, "NOT_STARTED", "Trip ended");
+        }
+
+        // Update marker
+        if (card.marker && card.map) {
+          card.marker.setLatLng([loc.latitude, loc.longitude]);
+          card.marker.setOpacity(1);
+          card.map.setView([loc.latitude, loc.longitude], 15);
+          card.lastTimestamp = loc.timestamp;
+          card.lastLat = loc.latitude;
+          card.lastLng = loc.longitude;
+        }
+
+        // Update details
+        updateBusDetails(busId, {
+          status: trip && trip.status === "ACTIVE" ? "active" : "inactive",
+          lat: loc.latitude,
+          lng: loc.longitude,
+          accuracy: loc.accuracy,
+          ageSeconds: freshness.ageSeconds,
+          tripStatus: trip ? trip.status : null,
+        });
+
+      } catch (err) {
+        console.error("Failed to fetch location for bus " + busId + ":", err);
+      }
+    }
+
+    // ==================== UPDATE BUS STATUS ====================
+    function updateBusStatus(busId, status, message) {
+      const badgeEl = document.getElementById("bus-status-" + busId);
+      if (!badgeEl) return;
+
+      let cls, text;
+      switch (status) {
+        case "LIVE":
+          cls = "badge-live"; text = "LIVE"; break;
+        case "STALE":
+          cls = "badge-offline"; text = "STALE"; break;
+        case "WAITING":
+          cls = "badge-not-started"; text = "WAITING"; break;
+        case "NOT_STARTED":
+          cls = "badge-offline"; text = "NOT STARTED"; break;
+        default:
+          cls = "badge-offline"; text = "OFFLINE";
+      }
+
+      badgeEl.className = "badge " + cls;
+      badgeEl.textContent = text;
+    }
+
+    // ==================== UPDATE BUS DETAILS ====================
+    function updateBusDetails(busId, info) {
+      const detailsEl = document.getElementById("bus-details-" + busId);
+      const timeEl = document.getElementById("bus-time-" + busId);
+      if (!detailsEl) return;
+
+      let rows = "";
+
+      // Coordinates
+      if (info.lat && info.lng) {
+        rows += detailRow("Latitude", info.lat.toFixed(6));
+        rows += detailRow("Longitude", info.lng.toFixed(6));
+      }
+
+      // Accuracy
+      if (info.accuracy) {
+        rows += detailRow("GPS Accuracy", info.accuracy.toFixed(0) + "m");
+      }
+
+      // Status message
+      if (info.message) {
+        rows += detailRow("Status", info.message);
+      }
+
+      // Trip status
+      if (info.tripStatus) {
+        rows += detailRow("Trip", info.tripStatus);
+      }
+
+      if (!rows) {
+        rows = detailRow("Status", "No data yet");
+      }
+
+      detailsEl.innerHTML = rows;
+
+      // Update time
+      if (timeEl) {
+        if (info.ageSeconds !== undefined && info.ageSeconds !== null) {
+          if (info.ageSeconds < 10) timeEl.textContent = "Just now";
+          else if (info.ageSeconds < 60) timeEl.textContent = info.ageSeconds + "s ago";
+          else timeEl.textContent = Math.floor(info.ageSeconds / 60) + "m ago";
+        } else if (info.status === "active" && info.lat) {
+          timeEl.textContent = "Live";
+        } else {
+          timeEl.textContent = "—";
+        }
+      }
+    }
+
+    function detailRow(label, value) {
+      return '<div class="bus-detail-row"><span class="bus-detail-label">' + escapeHtml(label) + '</span><span class="bus-detail-value">' + escapeHtml(value) + '</span></div>';
+    }
+
+    // ==================== SOCKET.IO ====================
+    function connectSocket() {
+      if (socket) {
+        try { socket.disconnect(); } catch(e) {}
+      }
+
+      socket = io({
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000,
+      });
+
+      socket.on("connect", () => {
+        document.getElementById("connectionStatus").textContent = "Live — Connected";
+      });
+
+      socket.on("disconnect", () => {
+        document.getElementById("connectionStatus").textContent = "Reconnecting...";
+      });
+
+      socket.on("reconnect", () => {
+        document.getElementById("connectionStatus").textContent = "Live — Connected";
+      });
+
+      // Receive location updates
+      socket.on("location:update", (data) => {
+        const busId = data.busId;
+        const card = busCards[busId];
+        if (!card) return;
+
+        // Move marker
+        if (card.marker && card.map) {
+          card.marker.setLatLng([data.latitude, data.longitude]);
+          card.marker.setOpacity(1);
+          card.map.setView([data.latitude, data.longitude], 15);
+          card.lastTimestamp = data.timestamp || new Date().toISOString();
+          card.lastLat = data.latitude;
+          card.lastLng = data.longitude;
+        }
+
+        // Update status to LIVE
+        updateBusStatus(busId, "LIVE", "Live");
+
+        // Update details
+        updateBusDetails(busId, {
+          status: "active",
+          lat: data.latitude,
+          lng: data.longitude,
+          accuracy: data.accuracy,
+          ageSeconds: 0,
+          tripStatus: "ACTIVE",
+        });
+      });
+
+      socket.on("trip:status", (data) => {
+        buses.forEach(bus => fetchBusLocation(bus.id));
+      });
+    }
+
+    // ==================== UPDATE TIMESTAMPS EVERY 10s ====================
+    function updateTimeStamps() {
+      const now = Date.now();
+      buses.forEach(bus => {
+        const card = busCards[bus.id];
+        if (!card || !card.lastTimestamp) return;
+
+        const elapsed = Math.floor((now - new Date(card.lastTimestamp).getTime()) / 1000);
+        const timeEl = document.getElementById("bus-time-" + bus.id);
+        if (!timeEl) return;
+
+        if (elapsed < 10) timeEl.textContent = "Just now";
+        else if (elapsed < 60) timeEl.textContent = elapsed + "s ago";
+        else timeEl.textContent = Math.floor(elapsed / 60) + "m ago";
+
+        // Stale detection
+        if (elapsed > 60) {
+          updateBusStatus(bus.id, "STALE", "Location stale");
+        }
+      });
+    }
+
+    // ==================== HELPERS ====================
+    function escapeHtml(str) {
+      if (!str && str !== 0) return "";
+      const div = document.createElement("div");
+      div.textContent = String(str);
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IIIT Dharwad BusTracker — Real-Time College Bus Tracking</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <canvas id="particles-canvas"></canvas>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <a href="/" class="navbar-brand">
+      <div class="logo-icon">🚌</div>
+      <div class="logo-text">IIIT Dharwad <span>BusTracker</span></div>
+    </a>
+    <div class="nav-links">
+      <a href="/tracking.html" class="nav-link nav-primary">Track Buses</a>
+      <a href="/login.html?role=ADMIN" class="nav-link">Admin Login</a>
+      <a href="/login.html?role=DRIVER" class="nav-link">Driver Login</a>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-badge">
+      <span class="dot"></span>
+      Real-Time Tracking Active
+    </div>
+
+    <h1>Never Miss<br />Your Bus <span class="highlight">Again.</span></h1>
+
+    <p class="subtitle">
+      Track IIIT Dharwad college buses in real time. Know exactly where your bus is — no waiting, no guessing.
+    </p>
+
+    <div class="hero-actions">
+      <a href="/tracking.html" class="btn btn-primary btn-large">
+        🗺 Track Buses
+      </a>
+      <a href="/login.html?role=ADMIN" class="btn btn-secondary btn-large">
+        ⚙️ Admin Access
+      </a>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section class="how-it-works">
+    <div class="container">
+      <h2 class="section-title">How It Works</h2>
+      <p class="section-subtitle">Simple, fast, and built for students</p>
+
+      <div class="steps-grid">
+        <div class="step-card">
+          <div class="step-number">1</div>
+          <h3>Driver Starts Trip</h3>
+          <p>The driver logs in and starts their trip with one tap.</p>
+        </div>
+        <div class="step-card">
+          <div class="step-number">2</div>
+          <h3>GPS Shares Location</h3>
+          <p>The driver's smartphone GPS continuously shares the bus location.</p>
+        </div>
+        <div class="step-card">
+          <div class="step-number">3</div>
+          <h3>Live Updates</h3>
+          <p>The system updates the bus position in real time via WebSocket.</p>
+        </div>
+        <div class="step-card">
+          <div class="step-number">4</div>
+          <h3>Track Instantly</h3>
+          <p>Students open the tracker and see the live bus location on a map.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <p>IIIT Dharwad BusTracker — Frugal Innovation Project. Built with open-source technologies.</p>
+  </footer>
+
+  <!-- Particle Animation -->
+  <script>
+    (function () {
+      const canvas = document.getElementById("particles-canvas");
+      const ctx = canvas.getContext("2d");
+      let particles = [];
+      const PARTICLE_COUNT = 60;
+      const CONNECTION_DIST = 150;
+      const EDGE_MARGIN = 100;
+
+      function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      resize();
+      window.addEventListener("resize", resize);
+
+      class Particle {
+        constructor() {
+          this.reset();
+        }
+        reset() {
+          this.x = Math.random() * canvas.width;
+          this.y = Math.random() * canvas.height;
+          this.vx = (Math.random() - 0.5) * 0.3;
+          this.vy = (Math.random() - 0.5) * 0.3;
+          this.size = Math.random() * 1.5 + 0.5;
+          this.opacity = Math.random() * 0.3 + 0.1;
+        }
+        update() {
+          this.x += this.vx;
+          this.y += this.vy;
+          if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+          if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+        }
+        draw() {
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(6, 182, 212, ${this.opacity})`;
+          ctx.fill();
+        }
+      }
+
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        particles.push(new Particle());
+      }
+
+      function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        particles.forEach(p => {
+          p.update();
+          p.draw();
+        });
+
+        for (let i = 0; i < particles.length; i++) {
+          for (let j = i + 1; j < particles.length; j++) {
+            const dx = particles[i].x - particles[j].x;
+            const dy = particles[i].y - particles[j].y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < CONNECTION_DIST) {
+              const alpha = (1 - dist / CONNECTION_DIST) * 0.06;
+              ctx.beginPath();
+              ctx.moveTo(particles[i].x, particles[i].y);
+              ctx.lineTo(particles[j].x, particles[j].y);
+              ctx.strokeStyle = `rgba(6, 182, 212, ${alpha})`;
+              ctx.lineWidth = 0.5;
+              ctx.stroke();
+            }
+          }
+        }
+
+        requestAnimationFrame(animate);
+      }
+
+      // Respect reduced motion preference
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        animate();
+      } else {
+        // Draw static particles once
+        particles.forEach(p => p.draw());
+        for (let i = 0; i < particles.length; i++) {
+          for (let j = i + 1; j < particles.length; j++) {
+            const dx = particles[i].x - particles[j].x;
+            const dy = particles[i].y - particles[j].y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < CONNECTION_DIST) {
+              const alpha = (1 - dist / CONNECTION_DIST) * 0.06;
+              ctx.beginPath();
+              ctx.moveTo(particles[i].x, particles[i].y);
+              ctx.lineTo(particles[j].x, particles[j].y);
+              ctx.strokeStyle = `rgba(6, 182, 212, ${alpha})`;
+              ctx.lineWidth = 0.5;
+              ctx.stroke();
+            }
+          }
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

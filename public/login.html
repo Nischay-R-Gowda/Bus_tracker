@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login — IIIT Dharwad BusTracker</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <canvas id="particles-canvas"></canvas>
+
+  <div class="auth-page">
+    <div class="auth-box">
+      <h2 id="roleTitle">Login</h2>
+      <p id="roleSubtitle" class="auth-subtitle"></p>
+
+      <!-- Login Form Only — No public registration -->
+      <form id="loginForm" class="auth-form">
+        <div class="form-group">
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" placeholder="Enter your email" required autocomplete="email" />
+        </div>
+
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" placeholder="Enter your password" required autocomplete="current-password" />
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full" id="loginBtn">
+          Login
+        </button>
+
+        <div id="loginError" class="error-message hidden"></div>
+      </form>
+
+      <a href="/" class="nav-link" style="display:block;text-align:center;margin-top:16px;padding:8px;border-radius:8px;color:var(--text-muted);text-decoration:none;font-size:0.9rem;">← Back to Home</a>
+    </div>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const role = (urlParams.get("role") || "DRIVER").toUpperCase();
+
+    const roleTitles = {
+      DRIVER: "Driver Login",
+      ADMIN: "Admin Login",
+      STUDENT: "Student Login",
+    };
+
+    document.getElementById("roleTitle").textContent = roleTitles[role] || "Login";
+    document.getElementById("roleSubtitle").textContent = role === "ADMIN" ? "Administrator access only" : "Official driver login only";
+
+    // ==================== AUTH STATE ====================
+    let currentUser = JSON.parse(localStorage.getItem("busTrackerUser")) || null;
+    let currentToken = localStorage.getItem("busTrackerToken") || null;
+
+    // If already logged in and role matches, redirect. Otherwise clear stale session.
+    if (currentUser && currentToken) {
+      if (currentUser.role === role) {
+        redirectToDashboard(currentUser.role);
+      } else {
+        localStorage.removeItem("busTrackerToken");
+        localStorage.removeItem("busTrackerUser");
+        currentUser = null;
+        currentToken = null;
+      }
+    }
+
+    function redirectToDashboard(userRole) {
+      if (userRole === "DRIVER") {
+        window.location.href = "/driver/dashboard.html";
+      } else if (userRole === "ADMIN") {
+        window.location.href = "/admin/dashboard.html";
+      } else if (userRole === "STUDENT") {
+        window.location.href = "/student/track.html";
+      }
+    }
+
+    // ==================== API HELPERS ====================
+    async function apiCall(endpoint, options = {}) {
+      const headers = { "Content-Type": "application/json" };
+      if (currentToken) headers["Authorization"] = `Bearer ${currentToken}`;
+
+      const response = await fetch(endpoint, {
+        ...options,
+        headers: { ...headers, ...options.headers },
+      });
+
+      const data = await response.json();
+      return { status: response.status, data };
+    }
+
+    function showError(elementId, message) {
+      const el = document.getElementById(elementId);
+      el.textContent = message;
+      el.classList.remove("hidden");
+    }
+
+    function hideError(elementId) {
+      const el = document.getElementById(elementId);
+      el.classList.add("hidden");
+    }
+
+    // ==================== LOGIN ====================
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideError("loginError");
+
+      const email = document.getElementById("loginEmail").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      const btn = document.getElementById("loginBtn");
+
+      btn.disabled = true;
+      btn.textContent = "Logging in...";
+
+      try {
+        const { status, data } = await apiCall("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        });
+
+        if (status === 200) {
+          currentToken = data.token;
+          currentUser = data.user;
+          localStorage.setItem("busTrackerToken", currentToken);
+          localStorage.setItem("busTrackerUser", JSON.stringify(currentUser));
+          redirectToDashboard(currentUser.role);
+        } else {
+          showError("loginError", data.message || "Login failed.");
+        }
+      } catch (err) {
+        showError("loginError", "Network error. Please try again.");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Login";
+      }
+    });
+  </script>
+</body>
+</html>

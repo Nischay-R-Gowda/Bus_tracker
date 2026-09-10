@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard — IIIT Dharwad BusTracker</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1> Admin Dashboard</h1>
+      <div class="user-info">
+        <span id="userName"></span>
+        <button class="btn btn-small btn-secondary" onclick="logout()">Logout</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- ===== OVERVIEW STATS ===== -->
+      <div class="stats-row" id="statsRow">
+        <div class="stat-card">
+          <div class="stat-number" id="statDrivers">0</div>
+          <div class="stat-label">Total Drivers</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="statActiveDrivers">0</div>
+          <div class="stat-label">Active Drivers</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="statBuses">0</div>
+          <div class="stat-label">Total Buses</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="statActiveBuses">0</div>
+          <div class="stat-label">Active Buses</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="statActiveTrips">0</div>
+          <div class="stat-label">Active Trips</div>
+        </div>
+      </div>
+
+      <!-- ===== DRIVER MANAGEMENT ===== -->
+      <div class="card">
+        <div class="card-header-row">
+          <h2> Driver Management</h2>
+          <button class="btn btn-primary" onclick="showCreateDriverForm()">+ Create Driver</button>
+        </div>
+
+        <!-- Create Driver Form (hidden by default) -->
+        <div id="createDriverForm" class="hidden" style="margin-bottom:20px;padding:16px;background:var(--glass-bg);border-radius:12px;">
+          <h3 style="margin-top:0;">New Driver Account</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="newDriverName">Full Name</label>
+              <input type="text" id="newDriverName" placeholder="Driver name" required />
+            </div>
+            <div class="form-group">
+              <label for="newDriverEmail">Email</label>
+              <input type="email" id="newDriverEmail" placeholder="driver@example.com" required />
+            </div>
+            <div class="form-group">
+              <label for="newDriverPhone">Phone</label>
+              <input type="tel" id="newDriverPhone" placeholder="+91XXXXXXXXXX" />
+            </div>
+            <div class="form-group">
+              <label for="newDriverPassword">Password</label>
+              <input type="password" id="newDriverPassword" placeholder="Min 6 characters" required minlength="6" />
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="createDriver()">Create Driver</button>
+            <button class="btn btn-secondary" onclick="hideCreateDriverForm()">Cancel</button>
+          </div>
+          <div id="createDriverError" class="error-message hidden"></div>
+          <div id="createDriverSuccess" class="success-message hidden"></div>
+        </div>
+
+        <div id="driverTableContainer">
+          <p class="loading-text">Loading drivers...</p>
+        </div>
+      </div>
+
+      <!-- ===== BUS MANAGEMENT ===== -->
+      <div class="card">
+        <div class="card-header-row">
+          <h2> Bus Management</h2>
+          <button class="btn btn-primary" onclick="showAddBusForm()">+ Add Bus</button>
+        </div>
+
+        <!-- Add Bus Form (hidden by default) -->
+        <div id="addBusFormContainer" class="hidden" style="margin-bottom:20px;padding:16px;background:var(--glass-bg);border-radius:12px;">
+          <h3 style="margin-top:0;">New Bus</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="newBusNumber">Bus Number</label>
+              <input type="text" id="newBusNumber" placeholder="e.g. Bus 1" required />
+            </div>
+            <div class="form-group">
+              <label for="newBusReg">Registration</label>
+              <input type="text" id="newBusReg" placeholder="e.g. KA-01-AB-1234" />
+            </div>
+            <div class="form-group">
+              <label for="newBusRoute">Route</label>
+              <select id="newBusRoute">
+                <option value="">No route</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="newBusDriver">Assign Driver</label>
+              <select id="newBusDriver"><option value="">None</option></select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="createBus()">Add Bus</button>
+            <button class="btn btn-secondary" onclick="hideAddBusForm()">Cancel</button>
+          </div>
+          <div id="addBusError" class="error-message hidden"></div>
+          <div id="addBusSuccess" class="success-message hidden"></div>
+        </div>
+
+        <div id="busTableContainer">
+          <p class="loading-text">Loading buses...</p>
+        </div>
+      </div>
+
+      <!-- ===== ROUTE MANAGEMENT ===== -->
+      <div class="card">
+        <div class="card-header-row">
+          <h2> Route Management</h2>
+          <button class="btn btn-primary" onclick="showCreateRouteForm()">+ Add Route</button>
+        </div>
+
+        <div id="createRouteForm" class="hidden" style="margin-bottom:20px;padding:16px;background:var(--glass-bg);border-radius:12px;">
+          <h3 style="margin-top:0;">New Route</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="newRouteName">Route Name</label>
+              <input type="text" id="newRouteName" placeholder="e.g. Campus A → Hostel" required />
+            </div>
+            <div class="form-group">
+              <label for="newRouteDesc">Description</label>
+              <input type="text" id="newRouteDesc" placeholder="Optional description" />
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="createRoute()">Add Route</button>
+            <button class="btn btn-secondary" onclick="hideCreateRouteForm()">Cancel</button>
+          </div>
+          <div id="createRouteError" class="error-message hidden"></div>
+          <div id="createRouteSuccess" class="success-message hidden"></div>
+        </div>
+
+        <div id="routeTableContainer">
+          <p class="loading-text">Loading routes...</p>
+        </div>
+      </div>
+
+      <!-- ===== ACTIVE TRIPS ===== -->
+      <div class="card">
+        <h2> Active Trips</h2>
+        <div id="tripTableContainer">
+          <p class="loading-text">Loading trips...</p>
+        </div>
+      </div>
+
+      <!-- ===== STUDENT MANAGEMENT ===== -->
+      <div class="card">
+        <div class="card-header-row">
+          <h2> Student Management</h2>
+          <button class="btn btn-primary" onclick="showCreateStudentForm()">+ Add Student</button>
+        </div>
+
+        <div id="createStudentForm" class="hidden" style="margin-bottom:20px;padding:16px;background:var(--glass-bg);border-radius:12px;">
+          <h3 style="margin-top:0;">New Student Account</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="newStudentName">Full Name</label>
+              <input type="text" id="newStudentName" placeholder="Student name" required />
+            </div>
+            <div class="form-group">
+              <label for="newStudentEmail">Email</label>
+              <input type="email" id="newStudentEmail" placeholder="student@example.com" required />
+            </div>
+            <div class="form-group">
+              <label for="newStudentPhone">Phone</label>
+              <input type="tel" id="newStudentPhone" placeholder="+91XXXXXXXXXX" />
+            </div>
+            <div class="form-group">
+              <label for="newStudentPassword">Password</label>
+              <input type="password" id="newStudentPassword" placeholder="Min 6 characters" required minlength="6" />
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="createStudent()">Add Student</button>
+            <button class="btn btn-secondary" onclick="hideCreateStudentForm()">Cancel</button>
+          </div>
+          <div id="createStudentError" class="error-message hidden"></div>
+          <div id="createStudentSuccess" class="success-message hidden"></div>
+        </div>
+
+        <div id="studentTableContainer">
+          <p class="loading-text">Loading students...</p>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <p>IIIT Dharwad BusTracker — Frugal Innovation Project</p>
+    </footer>
+  </div>
+
+  <!-- ===== DELETE CONFIRMATION MODAL ===== -->
+  <div id="deleteModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3 id="deleteModalTitle">Confirm Delete</h3>
+      <p id="deleteModalMessage">Are you sure?</p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+        <button class="btn btn-danger" id="deleteConfirmBtn" onclick="confirmDelete()">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== EDIT DRIVER MODAL ===== -->
+  <div id="editDriverModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>Edit Driver</h3>
+      <div class="form-group">
+        <label for="editDriverName">Name</label>
+        <input type="text" id="editDriverName" />
+      </div>
+      <div class="form-group">
+        <label for="editDriverEmail">Email</label>
+        <input type="email" id="editDriverEmail" />
+      </div>
+      <div class="form-group">
+        <label for="editDriverPhone">Phone</label>
+        <input type="tel" id="editDriverPhone" />
+      </div>
+      <div class="form-group">
+        <label for="editDriverPassword">New Password (leave blank to keep current)</label>
+        <input type="password" id="editDriverPassword" placeholder="Min 6 characters" minlength="6" />
+      </div>
+      <div class="form-group">
+        <label for="editDriverStatus">Status</label>
+        <select id="editDriverStatus">
+          <option value="ACTIVE">Active</option>
+          <option value="DISABLED">Disabled</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeEditDriverModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveDriverEdit()">Save Changes</button>
+      </div>
+      <div id="editDriverError" class="error-message hidden"></div>
+    </div>
+  </div>
+
+  <!-- ===== EDIT BUS MODAL ===== -->
+  <div id="editBusModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>Edit Bus</h3>
+      <div class="form-group">
+        <label for="editBusNumber">Bus Number</label>
+        <input type="text" id="editBusNumber" />
+      </div>
+      <div class="form-group">
+        <label for="editBusReg">Registration</label>
+        <input type="text" id="editBusReg" />
+      </div>
+      <div class="form-group">
+        <label for="editBusRoute">Route</label>
+        <select id="editBusRoute">
+          <option value="">No route</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeEditBusModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveBusEdit()">Save Changes</button>
+      </div>
+      <div id="editBusError" class="error-message hidden"></div>
+    </div>
+  </div>
+
+  <!-- ===== EDIT STUDENT MODAL ===== -->
+  <div id="editStudentModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>Edit Student</h3>
+      <div class="form-group">
+        <label for="editStudentName">Name</label>
+        <input type="text" id="editStudentName" />
+      </div>
+      <div class="form-group">
+        <label for="editStudentEmail">Email</label>
+        <input type="email" id="editStudentEmail" />
+      </div>
+      <div class="form-group">
+        <label for="editStudentPhone">Phone</label>
+        <input type="tel" id="editStudentPhone" />
+      </div>
+      <div class="form-group">
+        <label for="editStudentPassword">New Password (leave blank to keep current)</label>
+        <input type="password" id="editStudentPassword" placeholder="Min 6 characters" minlength="6" />
+      </div>
+      <div class="form-group">
+        <label for="editStudentStatus">Status</label>
+        <select id="editStudentStatus">
+          <option value="ACTIVE">Active</option>
+          <option value="DISABLED">Disabled</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeEditStudentModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveStudentEdit()">Save Changes</button>
+      </div>
+      <div id="editStudentError" class="error-message hidden"></div>
+    </div>
+  </div>
+
+  <!-- ===== MANAGE STOPS / LANDMARKS MODAL ===== -->
+  <div id="stopsModal" class="modal-overlay hidden">
+    <div class="modal" style="max-width:700px;width:95%;">
+      <h3 id="stopsModalTitle">Manage Stops</h3>
+      <p style="color:var(--text-muted);font-size:0.82rem;margin-bottom:12px;">
+        Click on the map to add a stop. Enter a name and click "Add Stop".
+      </p>
+      <div id="stopsMap" class="driver-map-container" style="height:250px;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input type="text" id="newStopName" placeholder="Stop name (e.g. Yeshwanthpur)" style="flex:1;min-width:180px;padding:10px 14px;background:rgba(15,23,42,0.6);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:0.9rem;" />
+        <button class="btn btn-primary" onclick="addStop()">Add Stop</button>
+      </div>
+      <div id="stopsList" style="margin-top:12px;"></div>
+      <div id="stopsError" class="error-message hidden"></div>
+      <div class="modal-actions" style="margin-top:16px;">
+        <button class="btn btn-secondary" onclick="closeStopsModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==================== STATE ====================
+    let currentUser = JSON.parse(localStorage.getItem("busTrackerUser")) || null;
+    let currentToken = localStorage.getItem("busTrackerToken") || null;
+    let allDrivers = [];
+    let allBuses = [];
+    let allTrips = [];
+    let deleteTarget = null; // { type: 'driver'|'bus', id: number }
+    let editTarget = null;    // { type: 'driver'|'bus', id: number, data: object }
+
+    // ==================== INIT ====================
+    document.addEventListener("DOMContentLoaded", () => {
+      if (!currentUser || !currentToken) {
+        window.location.href = "/login.html?role=ADMIN";
+        return;
+      }
+      if (currentUser.role !== "ADMIN") {
+        localStorage.removeItem("busTrackerToken");
+        localStorage.removeItem("busTrackerUser");
+        window.location.href = "/login.html?role=ADMIN";
+        return;
+      }
+      document.getElementById("userName").textContent = `${currentUser.name} (Admin)`;
+      loadDashboard();
+    });
+
+    // ==================== LOGOUT ====================
+    function logout() {
+      localStorage.removeItem("busTrackerToken");
+      localStorage.removeItem("busTrackerUser");
+      window.location.href = "/";
+    }
+
+    // ==================== API HELPERS ====================
+    async function apiCall(endpoint, options = {}) {
+      const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${currentToken}` };
+      const response = await fetch(endpoint, { ...options, headers: { ...headers, ...options.headers } });
+      const data = await response.json();
+      return { status: response.status, data };
+    }
+
+    function showError(elementId, message) {
+      const el = document.getElementById(elementId);
+      el.textContent = message;
+      el.classList.remove("hidden");
+    }
+
+    function hideError(elementId) {
+      const el = document.getElementById(elementId);
+      el.classList.add("hidden");
+    }
+
+    // ==================== LOAD DASHBOARD ====================
+    async function loadDashboard() {
+      await Promise.all([loadDrivers(), loadBuses(), loadActiveTrips(), loadStudents(), loadRoutes()]);
+    }
+
+    // ==================== DRIVER MANAGEMENT ====================
+    function showCreateDriverForm() {
+      document.getElementById("createDriverForm").classList.remove("hidden");
+      hideError("createDriverError");
+      document.getElementById("createDriverSuccess").classList.add("hidden");
+    }
+
+    function hideCreateDriverForm() {
+      document.getElementById("createDriverForm").classList.add("hidden");
+      document.getElementById("newDriverName").value = "";
+      document.getElementById("newDriverEmail").value = "";
+      document.getElementById("newDriverPhone").value = "";
+      document.getElementById("newDriverPassword").value = "";
+    }
+
+    async function createDriver() {
+      hideError("createDriverError");
+      document.getElementById("createDriverSuccess").classList.add("hidden");
+
+      const name = document.getElementById("newDriverName").value.trim();
+      const email = document.getElementById("newDriverEmail").value.trim();
+      const phone = document.getElementById("newDriverPhone").value.trim();
+      const password = document.getElementById("newDriverPassword").value;
+
+      if (!name || !email || !password) {
+        showError("createDriverError", "Name, email, and password are required.");
+        return;
+      }
+      if (password.length < 6) {
+        showError("createDriverError", "Password must be at least 6 characters.");
+        return;
+      }
+
+      const { status, data } = await apiCall("/api/auth/drivers", {
+        method: "POST",
+        body: JSON.stringify({ name, email, password, phone: phone || null }),
+      });
+
+      if (status === 201) {
+        document.getElementById("createDriverSuccess").textContent = data.message;
+        document.getElementById("createDriverSuccess").classList.remove("hidden");
+        hideCreateDriverForm();
+        loadDrivers();
+      } else {
+        showError("createDriverError", data.message || "Failed to create driver.");
+      }
+    }
+
+    async function loadDrivers() {
+      const { status, data } = await apiCall("/api/auth/drivers");
+      if (status === 200) {
+        allDrivers = data.drivers || [];
+        renderDriverTable();
+      }
+    }
+
+    function renderDriverTable() {
+      const container = document.getElementById("driverTableContainer");
+      if (allDrivers.length === 0) {
+        container.innerHTML = '<p class="empty-state">No drivers yet. Create one above.</p>';
+        return;
+      }
+
+      container.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${allDrivers.map(d => `
+              <tr id="driver-row-${d.id}">
+                <td><strong>${escapeHtml(d.name)}</strong></td>
+                <td>${escapeHtml(d.email)}</td>
+                <td>${d.phone || "—"}</td>
+                <td><span class="badge badge-${d.status === 'ACTIVE' ? 'active' : 'offline'}">${d.status}</span></td>
+                <td class="actions-cell">
+                  <button class="btn btn-small btn-secondary" onclick="editDriver(${d.id})">Edit</button>
+                  <button class="btn btn-small ${d.status === 'ACTIVE' ? 'btn-warning' : 'btn-primary'}" onclick="toggleDriverStatus(${d.id}, '${d.status}')">
+                    ${d.status === 'ACTIVE' ? 'Disable' : 'Enable'}
+                  </button>
+                  <button class="btn btn-small btn-danger" onclick="deleteDriver(${d.id}, '${escapeHtml(d.name)}')">Delete</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    async function toggleDriverStatus(driverId, currentStatus) {
+      const newStatus = currentStatus === "ACTIVE" ? "DISABLED" : "ACTIVE";
+      const { status, data } = await apiCall(`/api/auth/drivers/${driverId}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (status === 200) {
+        loadDrivers();
+      } else {
+        alert(data.message || "Failed to update driver status.");
+      }
+    }
+
+    function editDriver(driverId) {
+      const driver = allDrivers.find(d => d.id === driverId);
+      if (!driver) return;
+      editTarget = { type: "driver", id: driverId, data: driver };
+      document.getElementById("editDriverName").value = driver.name;
+      document.getElementById("editDriverEmail").value = driver.email;
+      document.getElementById("editDriverPhone").value = driver.phone || "";
+      document.getElementById("editDriverPassword").value = "";
+      document.getElementById("editDriverStatus").value = driver.status;
+      document.getElementById("editDriverModal").classList.remove("hidden");
+      hideError("editDriverError");
+    }
+
+    function closeEditDriverModal() {
+      document.getElementById("editDriverModal").classList.add("hidden");
+      editTarget = null;
+    }
+
+    async function saveDriverEdit() {
+      hideError("editDriverError");
+      const name = document.getElementById("editDriverName").value.trim();
+      const email = document.getElementById("editDriverEmail").value.trim();
+      const phone = document.getElementById("editDriverPhone").value.trim();
+      const password = document.getElementById("editDriverPassword").value;
+      const status = document.getElementById("editDriverStatus").value;
+
+      const updates = { name, email, phone: phone || null, status };
+      if (password) updates.password = password;
+
+      const { status: apiStatus, data } = await apiCall(`/api/auth/drivers/${editTarget.id}`, {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      });
+
+      if (apiStatus === 200) {
+        closeEditDriverModal();
+        loadDrivers();
+        loadBuses();
+      } else {
+        showError("editDriverError", data.message || "Failed to update driver.");
+      }
+    }
+
+    function deleteDriver(driverId, driverName) {
+      deleteTarget = { type: "driver", id: driverId };
+      document.getElementById("deleteModalTitle").textContent = "Delete Driver";
+      document.getElementById("deleteModalMessage").textContent =
+        `Are you sure you want to delete driver "${driverName}"? This action cannot be undone.`;
+      document.getElementById("deleteModal").classList.remove("hidden");
+    }
+
+    // ==================== BUS MANAGEMENT ====================
+    function showAddBusForm() {
+      document.getElementById("addBusFormContainer").classList.remove("hidden");
+      hideError("addBusError");
+      document.getElementById("addBusSuccess").classList.add("hidden");
+      populateDriverDropdown();
+    }
+
+    function hideAddBusForm() {
+      document.getElementById("addBusFormContainer").classList.add("hidden");
+      document.getElementById("newBusNumber").value = "";
+      document.getElementById("newBusReg").value = "";
+      document.getElementById("newBusRoute").value = "";
+      document.getElementById("newBusDriver").value = "";
+    }
+
+    async function populateDriverDropdown() {
+      const { data } = await apiCall("/api/auth/drivers");
+      const drivers = data.drivers || [];
+      const select = document.getElementById("newBusDriver");
+      select.innerHTML = '<option value="">None</option>' +
+        drivers.map(d => `<option value="${d.id}">${d.name} (${d.email})</option>`).join("");
+    }
+
+    async function populateRouteDropdown() {
+      const { data } = await apiCall("/api/admin/routes");
+      const routes = data.routes || [];
+      const select = document.getElementById("newBusRoute");
+      select.innerHTML = '<option value="">No route</option>' +
+        routes.map(r => `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join("");
+    }
+
+    async function createBus() {
+      hideError("addBusError");
+      document.getElementById("addBusSuccess").classList.add("hidden");
+
+      const busNumber = document.getElementById("newBusNumber").value.trim();
+      const registration = document.getElementById("newBusReg").value.trim();
+      const routeName = document.getElementById("newBusRoute").value.trim();
+      const driverId = document.getElementById("newBusDriver").value ? parseInt(document.getElementById("newBusDriver").value) : null;
+
+      if (!busNumber) {
+        showError("addBusError", "Bus number is required.");
+        return;
+      }
+
+      const { status, data } = await apiCall("/api/buses", {
+        method: "POST",
+        body: JSON.stringify({ busNumber, registration, routeName, driverId }),
+      });
+
+      if (status === 201) {
+        document.getElementById("addBusSuccess").textContent = "Bus added successfully!";
+        document.getElementById("addBusSuccess").classList.remove("hidden");
+        hideAddBusForm();
+        loadBuses();
+      } else {
+        showError("addBusError", data.message || "Failed to add bus.");
+      }
+    }
+
+    async function loadBuses() {
+      const { status, data } = await apiCall("/api/buses");
+      if (status === 200) {
+        allBuses = data.buses || [];
+        renderBusTable();
+        updateStats();
+      }
+    }
+
+    function renderBusTable() {
+      const container = document.getElementById("busTableContainer");
+      if (allBuses.length === 0) {
+        container.innerHTML = '<p class="empty-state">No buses yet. Add one above.</p>';
+        return;
+      }
+
+      container.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Bus Number</th>
+              <th>Registration</th>
+              <th>Route</th>
+              <th>Driver</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${allBuses.map(b => `
+              <tr id="bus-row-${b.id}">
+                <td><strong>${escapeHtml(b.busNumber)}</strong></td>
+                <td>${b.registration || "—"}</td>
+                <td>${b.routeName || "—"}</td>
+                <td>${b.driverName || "Unassigned"}</td>
+                <td><span class="badge badge-${b.status === 'ACTIVE' ? 'active' : 'inactive'}">${b.status}</span></td>
+                <td class="actions-cell">
+                  <button class="btn btn-small btn-secondary" onclick="editBus(${b.id})">Edit</button>
+                  <button class="btn btn-small btn-danger" onclick="deleteBus(${b.id}, '${escapeHtml(b.busNumber)}')">Delete</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function editBus(busId) {
+      const bus = allBuses.find(b => b.id === busId);
+      if (!bus) return;
+      editTarget = { type: "bus", id: busId, data: bus };
+      document.getElementById("editBusNumber").value = bus.busNumber;
+      document.getElementById("editBusReg").value = bus.registration || "";
+      document.getElementById("editBusRoute").value = bus.routeName || "";
+      document.getElementById("editBusModal").classList.remove("hidden");
+      hideError("editBusError");
+    }
+
+    function closeEditBusModal() {
+      document.getElementById("editBusModal").classList.add("hidden");
+      editTarget = null;
+    }
+
+    async function saveBusEdit() {
+      hideError("editBusError");
+      const busNumber = document.getElementById("editBusNumber").value.trim();
+      const registration = document.getElementById("editBusReg").value.trim();
+      const routeName = document.getElementById("editBusRoute").value || null;
+
+      const { status, data } = await apiCall(`/api/buses/${editTarget.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ busNumber, registration, routeName }),
+      });
+
+      if (status === 200) {
+        closeEditBusModal();
+        loadBuses();
+      } else {
+        showError("editBusError", data.message || "Failed to update bus.");
+      }
+    }
+
+    function deleteBus(busId, busNumber) {
+      deleteTarget = { type: "bus", id: busId };
+      document.getElementById("deleteModalTitle").textContent = "Delete Bus";
+      document.getElementById("deleteModalMessage").textContent =
+        `Are you sure you want to delete bus "${busNumber}"? This action cannot be undone.`;
+      document.getElementById("deleteModal").classList.remove("hidden");
+    }
+
+    // ==================== DELETE MODAL ====================
+    function closeDeleteModal() {
+      document.getElementById("deleteModal").classList.add("hidden");
+      deleteTarget = null;
+    }
+
+    async function confirmDelete() {
+      if (!deleteTarget) return;
+
+      const { type, id } = deleteTarget;
+      const endpoint = type === "driver" ? `/api/auth/drivers/${id}` :
+        type === "route" ? `/api/admin/routes/${id}` :
+        type === "student" ? `/api/auth/students/${id}` : `/api/buses/${id}`;
+      const method = "DELETE";
+
+      const { status, data } = await apiCall(endpoint, { method });
+
+      if (status === 200) {
+        if (type === "driver") {
+          loadDrivers();
+          loadBuses();
+        } else if (type === "student") {
+          loadStudents();
+        } else if (type === "route") {
+          loadRoutes();
+          loadBuses();
+        } else {
+          loadBuses();
+        }
+        loadActiveTrips();
+      } else {
+        alert(data.message || `Failed to delete ${type}.`);
+      }
+
+      closeDeleteModal();
+    }
+
+    // ==================== ROUTE MANAGEMENT ====================
+    let allRoutes = [];
+    let routeEditTarget = null;
+
+    function showCreateRouteForm() {
+      document.getElementById("createRouteForm").classList.remove("hidden");
+      hideError("createRouteError");
+      document.getElementById("createRouteSuccess").classList.add("hidden");
+    }
+
+    function hideCreateRouteForm() {
+      document.getElementById("createRouteForm").classList.add("hidden");
+      document.getElementById("newRouteName").value = "";
+      document.getElementById("newRouteDesc").value = "";
+    }
+
+    async function createRoute() {
+      hideError("createRouteError");
+      document.getElementById("createRouteSuccess").classList.add("hidden");
+
+      const name = document.getElementById("newRouteName").value.trim();
+      const description = document.getElementById("newRouteDesc").value.trim();
+
+      if (!name) {
+        showError("createRouteError", "Route name is required.");
+        return;
+      }
+
+      const { status, data } = await apiCall("/api/admin/routes", {
+        method: "POST",
+        body: JSON.stringify({ name, description }),
+      });
+
+      if (status === 201) {
+        document.getElementById("createRouteSuccess").textContent = data.message;
+        document.getElementById("createRouteSuccess").classList.remove("hidden");
+        hideCreateRouteForm();
+        loadRoutes();
+      } else {
+        showError("createRouteError", data.message || "Failed to create route.");
+      }
+    }
+
+    async function loadRoutes() {
+      const { status, data } = await apiCall("/api/admin/routes");
+      if (status === 200) {
+        allRoutes = data.routes || [];
+        renderRouteTable();
+        // Also update bus form dropdowns
+        populateRouteDropdown();
+      }
+    }
+
+    function renderRouteTable() {
+      const container = document.getElementById("routeTableContainer");
+      if (allRoutes.length === 0) {
+        container.innerHTML = '<p class="empty-state">No routes yet. Create one above.</p>';
+        return;
+      }
+
+      container.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr><th>Name</th><th>Description</th><th>Stops</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            ${allRoutes.map(r => `
+              <tr>
+                <td><strong>${escapeHtml(r.name)}</strong></td>
+                <td>${r.description ? escapeHtml(r.description) : "—"}</td>
+                <td>${r.stops && r.stops.length > 0 ? r.stops.length + " stop(s)" : "No stops"}</td>
+                <td class="actions-cell">
+                  <button class="btn btn-small btn-secondary" onclick="openStopsModal(${r.id}, '${escapeHtml(r.name)}')">&#128205; Manage Stops</button>
+                  <button class="btn btn-small btn-danger" onclick="deleteRoute(${r.id}, '${escapeHtml(r.name)}')">Delete</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function deleteRoute(routeId, routeName) {
+      deleteTarget = { type: "route", id: routeId };
+      document.getElementById("deleteModalTitle").textContent = "Delete Route";
+      document.getElementById("deleteModalMessage").textContent =
+        `Are you sure you want to delete route "${routeName}"? Buses assigned to this route will need a new route.`;
+      document.getElementById("deleteModal").classList.remove("hidden");
+    }
+
+    // ==================== ACTIVE TRIPS ====================
+    async function loadActiveTrips() {
+      const { status, data } = await apiCall("/api/trips/active");
+      if (status === 200) {
+        allTrips = data.trips || [];
+        renderTripTable();
+        updateStats();
+      }
+    }
+
+    function renderTripTable() {
+      const container = document.getElementById("tripTableContainer");
+      if (allTrips.length === 0) {
+        container.innerHTML = '<p class="empty-state">No active trips currently.</p>';
+        return;
+      }
+
+      container.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr><th>Bus</th><th>Route</th><th>Driver</th><th>Started</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            ${allTrips.map(t => `
+              <tr>
+                <td><strong>${escapeHtml(t.busNumber)}</strong></td>
+                <td>${t.routeName || "—"}</td>
+                <td>${escapeHtml(t.driverName)}</td>
+                <td>${new Date(t.startTime).toLocaleString()}</td>
+                <td><span class="badge badge-active">ACTIVE</span></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    // ==================== STATS ====================
+    function updateStats() {
+      const drivers = allDrivers;
+      const activeDrivers = drivers.filter(d => d.status === "ACTIVE");
+      const activeBuses = allBuses.filter(b => b.status === "ACTIVE");
+
+      document.getElementById("statDrivers").textContent = drivers.length;
+      document.getElementById("statActiveDrivers").textContent = activeDrivers.length;
+      document.getElementById("statBuses").textContent = allBuses.length;
+      document.getElementById("statActiveBuses").textContent = activeBuses.length;
+      document.getElementById("statActiveTrips").textContent = allTrips.length;
+    }
+
+    // ==================== STUDENT MANAGEMENT ====================
+    let allStudents = [];
+    let studentEditTarget = null;
+
+    function showCreateStudentForm() {
+      document.getElementById("createStudentForm").classList.remove("hidden");
+      hideError("createStudentError");
+      document.getElementById("createStudentSuccess").classList.add("hidden");
+    }
+
+    function hideCreateStudentForm() {
+      document.getElementById("createStudentForm").classList.add("hidden");
+      document.getElementById("newStudentName").value = "";
+      document.getElementById("newStudentEmail").value = "";
+      document.getElementById("newStudentPhone").value = "";
+      document.getElementById("newStudentPassword").value = "";
+    }
+
+    async function createStudent() {
+      hideError("createStudentError");
+      document.getElementById("createStudentSuccess").classList.add("hidden");
+
+      const name = document.getElementById("newStudentName").value.trim();
+      const email = document.getElementById("newStudentEmail").value.trim();
+      const phone = document.getElementById("newStudentPhone").value.trim();
+      const password = document.getElementById("newStudentPassword").value;
+
+      if (!name || !email || !password) {
+        showError("createStudentError", "Name, email, and password are required.");
+        return;
+      }
+      if (password.length < 6) {
+        showError("createStudentError", "Password must be at least 6 characters.");
+        return;
+      }
+
+      const { status, data } = await apiCall("/api/auth/students", {
+        method: "POST",
+        body: JSON.stringify({ name, email, password, phone: phone || null }),
+      });
+
+      if (status === 201) {
+        document.getElementById("createStudentSuccess").textContent = data.message;
+        document.getElementById("createStudentSuccess").classList.remove("hidden");
+        hideCreateStudentForm();
+        loadStudents();
+      } else {
+        showError("createStudentError", data.message || "Failed to create student.");
+      }
+    }
+
+    async function loadStudents() {
+      const { status, data } = await apiCall("/api/auth/students");
+      if (status === 200) {
+        allStudents = data.students || [];
+        renderStudentTable();
+      }
+    }
+
+    function renderStudentTable() {
+      const container = document.getElementById("studentTableContainer");
+      if (allStudents.length === 0) {
+        container.innerHTML = '<p class="empty-state">No students yet. Add one above.</p>';
+        return;
+      }
+
+      container.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${allStudents.map(s => `
+              <tr id="student-row-${s.id}">
+                <td><strong>${escapeHtml(s.name)}</strong></td>
+                <td>${escapeHtml(s.email)}</td>
+                <td>${s.phone || "—"}</td>
+                <td><span class="badge badge-${s.status === 'ACTIVE' ? 'active' : 'offline'}">${s.status}</span></td>
+                <td class="actions-cell">
+                  <button class="btn btn-small btn-secondary" onclick="editStudent(${s.id})">Edit</button>
+                  <button class="btn btn-small ${s.status === 'ACTIVE' ? 'btn-warning' : 'btn-primary'}" onclick="toggleStudentStatus(${s.id}, '${s.status}')">
+                    ${s.status === 'ACTIVE' ? 'Disable' : 'Enable'}
+                  </button>
+                  <button class="btn btn-small btn-danger" onclick="deleteStudent(${s.id}, '${escapeHtml(s.name)}')">Delete</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    async function toggleStudentStatus(studentId, currentStatus) {
+      const newStatus = currentStatus === "ACTIVE" ? "DISABLED" : "ACTIVE";
+      const { status, data } = await apiCall(`/api/auth/students/${studentId}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (status === 200) {
+        loadStudents();
+      } else {
+        alert(data.message || "Failed to update student status.");
+      }
+    }
+
+    function editStudent(studentId) {
+      const student = allStudents.find(s => s.id === studentId);
+      if (!student) return;
+      studentEditTarget = { id: studentId, data: student };
+      document.getElementById("editStudentName").value = student.name;
+      document.getElementById("editStudentEmail").value = student.email;
+      document.getElementById("editStudentPhone").value = student.phone || "";
+      document.getElementById("editStudentPassword").value = "";
+      document.getElementById("editStudentStatus").value = student.status;
+      document.getElementById("editStudentModal").classList.remove("hidden");
+      hideError("editStudentError");
+    }
+
+    function closeEditStudentModal() {
+      document.getElementById("editStudentModal").classList.add("hidden");
+      studentEditTarget = null;
+    }
+
+    async function saveStudentEdit() {
+      hideError("editStudentError");
+      const name = document.getElementById("editStudentName").value.trim();
+      const email = document.getElementById("editStudentEmail").value.trim();
+      const phone = document.getElementById("editStudentPhone").value.trim();
+      const password = document.getElementById("editStudentPassword").value;
+      const status = document.getElementById("editStudentStatus").value;
+
+      const updates = { name, email, phone: phone || null, status };
+      if (password) updates.password = password;
+
+      const { status: apiStatus, data } = await apiCall(`/api/auth/students/${studentEditTarget.id}`, {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      });
+
+      if (apiStatus === 200) {
+        closeEditStudentModal();
+        loadStudents();
+      } else {
+        showError("editStudentError", data.message || "Failed to update student.");
+      }
+    }
+
+    function deleteStudent(studentId, studentName) {
+      deleteTarget = { type: "student", id: studentId };
+      document.getElementById("deleteModalTitle").textContent = "Delete Student";
+      document.getElementById("deleteModalMessage").textContent =
+        `Are you sure you want to delete student "${studentName}"? This action cannot be undone.`;
+      document.getElementById("deleteModal").classList.remove("hidden");
+    }
+
+    // Refresh students every 30 seconds
+    setInterval(loadStudents, 30000);
+
+    // ==================== STOPS / LANDMARKS MANAGEMENT ====================
+    let stopsModalRouteId = null;
+    let stopsMap = null;
+    let stopsMarkers = [];
+    let pendingStopLatLng = null;
+
+    function openStopsModal(routeId, routeName) {
+      stopsModalRouteId = routeId;
+      document.getElementById("stopsModalTitle").textContent = "Manage Stops — " + routeName;
+      document.getElementById("stopsModal").classList.remove("hidden");
+      document.getElementById("stopsError").classList.add("hidden");
+      pendingStopLatLng = null;
+      document.getElementById("newStopName").value = "";
+      initStopsMap();
+      renderStopsList();
+    }
+
+    function closeStopsModal() {
+      document.getElementById("stopsModal").classList.add("hidden");
+      stopsModalRouteId = null;
+      if (stopsMap) { stopsMap.remove(); stopsMap = null; }
+      stopsMarkers = [];
+      pendingStopLatLng = null;
+    }
+
+    function initStopsMap() {
+      if (stopsMap) { stopsMap.remove(); stopsMap = null; }
+      stopsMarkers = [];
+
+      stopsMap = L.map("stopsMap", { zoomControl: true, attributionControl: true });
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap", maxZoom: 19,
+      }).addTo(stopsMap);
+
+      // Load existing stops for this route
+      const route = allRoutes.find(r => r.id === stopsModalRouteId);
+      if (route && route.stops && route.stops.length > 0) {
+        const group = new L.featureGroup();
+        route.stops.forEach(stop => {
+          const marker = L.marker([stop.latitude, stop.longitude]).addTo(stopsMap);
+          marker.bindPopup(`<b>${escapeHtml(stop.name)}</b>`);
+          stopsMarkers.push(marker);
+          group.addLayer(marker);
+        });
+        stopsMap.fitBounds(group.getBounds().pad(0.3));
+      } else {
+        stopsMap.setView([window.COLLEGE_LAT || 12.9352, window.COLLEGE_LNG || 77.5366], 13);
+      }
+
+      // Click to place a new stop
+      stopsMap.on("click", function(e) {
+        pendingStopLatLng = e.latlng;
+        // Show a temporary marker
+        const tempMarker = L.marker(e.latlng, {
+          opacity: 0.7,
+        }).addTo(stopsMap);
+        stopsMarkers.push(tempMarker);
+        document.getElementById("newStopName").focus();
+      });
+    }
+
+    async function renderStopsList() {
+      const listEl = document.getElementById("stopsList");
+      if (!stopsModalRouteId) return;
+
+      const { data } = await apiCall("/api/admin/routes/" + stopsModalRouteId);
+      const route = data.route;
+      if (!route || !route.stops || route.stops.length === 0) {
+        listEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">No stops yet. Click the map to add stops.</p>';
+        return;
+      }
+
+      listEl.innerHTML = route.stops.map((stop, idx) => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:rgba(15,23,42,0.5);border-radius:8px;margin-bottom:6px;">
+          <div>
+            <strong>${escapeHtml(stop.name)}</strong>
+            <span style="color:var(--text-muted);font-size:0.78rem;margin-left:8px;">
+              ${stop.latitude.toFixed(4)}, ${stop.longitude.toFixed(4)}
+            </span>
+          </div>
+          <button class="btn btn-small btn-danger" onclick="deleteStop(${idx})">Remove</button>
+        </div>
+      `).join("");
+    }
+
+    async function addStop() {
+      const name = document.getElementById("newStopName").value.trim();
+      if (!name) {
+        showError("stopsError", "Please enter a stop name.");
+        return;
+      }
+      if (!pendingStopLatLng) {
+        showError("stopsError", "Please click on the map to select a location.");
+        return;
+      }
+
+      // Fetch current route
+      const { data } = await apiCall("/api/admin/routes/" + stopsModalRouteId);
+      const route = data.route;
+      if (!route) return;
+
+      const stops = route.stops || [];
+      stops.push({
+        name: name,
+        latitude: Math.round(pendingStopLatLng.lat * 10000) / 10000,
+        longitude: Math.round(pendingStopLatLng.lng * 10000) / 10000,
+      });
+
+      const { status } = await apiCall("/api/admin/routes/" + stopsModalRouteId, {
+        method: "PUT",
+        body: JSON.stringify({ name: route.name, description: route.description, stops }),
+      });
+
+      if (status === 200) {
+        document.getElementById("newStopName").value = "";
+        pendingStopLatLng = null;
+        hideError("stopsError");
+        // Refresh route list and stops
+        loadRoutes();
+        initStopsMap();
+        renderStopsList();
+      } else {
+        showError("stopsError", "Failed to add stop.");
+      }
+    }
+
+    async function deleteStop(stopIndex) {
+      const { data } = await apiCall("/api/admin/routes/" + stopsModalRouteId);
+      const route = data.route;
+      if (!route || !route.stops) return;
+
+      const stops = route.stops.filter((_, i) => i !== stopIndex);
+
+      const { status } = await apiCall("/api/admin/routes/" + stopsModalRouteId, {
+        method: "PUT",
+        body: JSON.stringify({ name: route.name, description: route.description, stops }),
+      });
+
+      if (status === 200) {
+        loadRoutes();
+        initStopsMap();
+        renderStopsList();
+      }
+    }
+
+    // ==================== HELPERS ====================
+    function escapeHtml(str) {
+      if (!str && str !== 0) return "";
+      const div = document.createElement("div");
+      div.textContent = String(str);
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

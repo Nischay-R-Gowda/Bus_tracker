@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Student Dashboard — Bus Tracker</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo-icon">🚌</span>
+      <span class="logo-text">Bus Tracker</span>
+    </div>
+    <div class="nav-links">
+      <span id="studentNameDisplay" class="user-name">Student</span>
+      <a href="/student/track.html" class="nav-link">Track Bus</a>
+      <a href="#" class="nav-link" onclick="logout()">Logout</a>
+    </div>
+  </nav>
+
+  <div class="container" style="margin-top:20px;">
+    <h1 class="page-title">Student Dashboard</h1>
+
+    <!-- Available Buses -->
+    <div class="card">
+      <h2>Available Buses</h2>
+      <p class="subtitle">Select a bus below to view its live location.</p>
+      <div id="busList">
+        <p class="loading-text">Loading buses...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==================== STATE ====================
+    let buses = [];
+
+    // ==================== INIT ====================
+    document.addEventListener("DOMContentLoaded", async () => {
+      await checkAuth();
+      await loadBuses();
+    });
+
+    async function checkAuth() {
+      const token = localStorage.getItem("busTrackerToken");
+      if (!token) {
+        window.location.href = "/student/login.html";
+        return;
+      }
+      const { status, data } = await apiCall("/api/auth/me");
+      if (status === 200 && data.user && data.user.role === "STUDENT") {
+        document.getElementById("studentNameDisplay").textContent = data.user.name;
+      } else {
+        window.location.href = "/student/login.html";
+      }
+    }
+
+    // ==================== BUS LOADING ====================
+    async function loadBuses() {
+      const { status, data } = await apiCall("/api/public/buses");
+      if (status === 200) {
+        buses = data.buses || [];
+        renderBusList();
+      } else {
+        document.getElementById("busList").innerHTML = '<p class="error-text">Failed to load buses.</p>';
+      }
+    }
+
+    function renderBusList() {
+      const container = document.getElementById("busList");
+      if (buses.length === 0) {
+        container.innerHTML = '<p class="empty-state">No buses available at this time.</p>';
+        return;
+      }
+
+      container.innerHTML = `<div class="bus-grid">
+        ${buses.map(b => `
+          <div class="bus-card">
+            <div class="bus-card-header">
+              <span class="bus-icon">🚌</span>
+              <div>
+                <h3>${escapeHtml(b.busNumber)}</h3>
+                <p>${b.registration ? escapeHtml(b.registration) : ""}</p>
+              </div>
+            </div>
+            ${b.routeName ? `<div class="bus-card-info"><span class="info-label">Route:</span> ${escapeHtml(b.routeName)}</div>` : ""}
+            ${b.driverName ? `<div class="bus-card-info"><span class="info-label">Driver:</span> ${escapeHtml(b.driverName)}</div>` : ""}
+            <div class="bus-card-info">
+              <span class="badge ${b.status === "ACTIVE" ? "badge-success" : "badge-danger"}">${b.status || "INACTIVE"}</span>
+            </div>
+            <a href="/student/track.html" class="btn btn-primary bus-track-btn" onclick="setTrackingBus(${b.id}, '${escapeHtml(b.busNumber)}', '${(b.routeName || "").replace(/'/g, "\\'")}')">Track Live</a>
+          </div>
+        `).join("")}
+      </div>`;
+    }
+
+    function setTrackingBus(busId, busNumber, route) {
+      sessionStorage.setItem("trackBusId", busId);
+      sessionStorage.setItem("trackBusNumber", busNumber);
+      sessionStorage.setItem("trackRoute", route);
+    }
+
+    // ==================== UTILITIES ====================
+    function escapeHtml(str) {
+      if (!str) return "";
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function logout() {
+      const token = localStorage.getItem("busTrackerToken");
+      fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` }
+      }).finally(() => {
+        localStorage.removeItem("busTrackerToken");
+        localStorage.removeItem("busTrackerUser");
+        window.location.href = "/student/login.html";
+      });
+    }
+
+    async function apiCall(path, options = {}) {
+      try {
+        const token = localStorage.getItem("busTrackerToken");
+        const headers = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
+        const res = await fetch(path, {
+          ...options,
+          headers: { ...headers, ...(options.headers || {}) },
+        });
+        const data = await res.json();
+        return { status: res.status, data };
+      } catch (err) {
+        return { status: 0, data: { message: "Network error" } };
+      }
+    }
+  </script>
+
+  <style>
+    .bus-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .bus-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      background: var(--card-bg);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .bus-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .bus-card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .bus-icon { font-size: 32px; }
+    .bus-card-header h3 { margin: 0; font-size: 1.1rem; }
+    .bus-card-header p { margin: 2px 0 0; font-size: 0.85rem; color: #888; }
+    .bus-card-info {
+      font-size: 0.9rem;
+      margin: 4px 0;
+      color: #555;
+    }
+    .bus-card-info .info-label {
+      font-weight: 600;
+      color: #333;
+    }
+    .bus-track-btn {
+      display: block;
+      width: 100%;
+      margin-top: 12px;
+      text-align: center;
+      text-decoration: none;
+      box-sizing: border-box;
+    }
+    .user-name {
+      font-weight: 600;
+      color: #555;
+    }
+    .subtitle {
+      color: #777;
+      margin-top: -8px;
+      margin-bottom: 16px;
+    }
+    .error-text { color: #dc2626; }
+  </style>
+</body>
+</html>

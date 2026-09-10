@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Track Bus — Bus Tracker</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo-icon">🚌</span>
+      <span class="logo-text">Bus Tracker</span>
+    </div>
+    <div class="nav-links">
+      <span id="studentNameDisplay" class="user-name">Student</span>
+      <a href="#" class="nav-link" onclick="logout()">Logout</a>
+    </div>
+  </nav>
+
+  <div class="container" style="margin-top:20px;max-width:800px;">
+    <h1 class="page-title">Track Your Bus</h1>
+
+    <!-- Bus Selector -->
+    <div class="card">
+      <div class="form-row">
+        <div class="form-group" style="flex:1;">
+          <label for="busSelect">Select Bus</label>
+          <select id="busSelect">
+            <option value="">-- Select a bus to track --</option>
+          </select>
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end;">
+          <button class="btn btn-primary" id="trackBtn" onclick="startTracking()" disabled>Track Bus</button>
+        </div>
+      </div>
+      <div id="trackError" class="error-message hidden"></div>
+    </div>
+
+    <!-- Tracking Info -->
+    <div id="trackingInfo" class="card hidden">
+      <h2 id="trackBusTitle">Bus Location</h2>
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label">Status</span>
+          <span id="busStatus" class="badge badge-danger">OFFLINE</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Last Update</span>
+          <span id="lastUpdate">—</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">GPS Accuracy</span>
+          <span id="gpsAccuracy">—</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Distance</span>
+          <span id="distanceDisplay">—</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Driver</span>
+          <span id="driverName">—</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Route</span>
+          <span id="busRoute">—</span>
+        </div>
+      </div>
+      <p id="locationWarning" class="warning-text hidden">Location may no longer be live. Last update was more than 60 seconds ago.</p>
+    </div>
+
+    <!-- Map -->
+    <div id="map" class="map-container"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // ==================== STATE ====================
+    let map = null;
+    let busMarker = null;
+    let collegeMarker = null;
+    let socket = null;
+    let currentBusId = null;
+    let currentBusName = "";
+    let currentRoute = null;
+    let userLat = null;
+    let userLng = null;
+    let updateInterval = null;
+    let stopMarkers = [];  // Fixed landmark markers
+    let allRoutes = [];    // Cached routes for stop lookup
+
+    const COLLEGE_LOCATION = { lat: 12.9352, lng: 77.5366 };
+    const HAVERSINE_R = 6371;
+
+    // ==================== INIT ====================
+    document.addEventListener("DOMContentLoaded", async () => {
+      initMap();
+      await loadBuses();
+      await loadRoutes();
+      await checkAuth();
+      await detectUserLocation();
+    });
+
+    function checkAuth() {
+      const token = localStorage.getItem("busTrackerToken");
+      if (!token) {
+        window.location.href = "/student/login.html";
+        return Promise.resolve();
+      }
+
+      return fetch("/api/auth/me", {
+        headers: { "Authorization": `Bearer ${token}` }
+      })
+        .then(res => {
+          if (!res.ok) throw new Error("Not authenticated");
+          return res.json();
+        })
+        .then(data => {
+          if (data.user && data.user.role === "STUDENT") {
+            document.getElementById("studentNameDisplay").textContent = data.user.name;
+          } else {
+            localStorage.removeItem("busTrackerToken");
+            localStorage.removeItem("busTrackerUser");
+            window.location.href = "/student/login.html";
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem("busTrackerToken");
+          localStorage.removeItem("busTrackerUser");
+          window.location.href = "/student/login.html";
+        });
+    }
+
+    function detectUserLocation() {
+      return new Promise((resolve) => {
+        if (!navigator.geolocation) { resolve(); return; }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            userLat = pos.coords.latitude;
+            userLng = pos.coords.longitude;
+            resolve();
+          },
+          () => resolve(),
+          { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+        );
+      });
+    }
+
+    // ==================== MAP ====================
+    function initMap() {
+      map = L.map("map").setView([COLLEGE_LOCATION.lat, COLLEGE_LOCATION.lng], 13);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19,
+      }).addTo(map);
+
+      // College marker
+      const collegeIcon = L.divIcon({
+        className: "college-marker",
+        html: `<div style="background:#2563eb;color:white;padding:4px 10px;border-radius:20px;font-size:13px;font-weight:bold;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.3);">🎓 College</div>`,
+        iconSize: [0, 0],
+        iconAnchor: [50, 20],
+      });
+      collegeMarker = L.marker([COLLEGE_LOCATION.lat, COLLEGE_LOCATION.lng], { icon: collegeIcon }).addTo(map);
+
+      // Bus marker (bus icon)
+      const busIcon = L.divIcon({
+        className: "bus-marker",
+        html: `<div style="font-size:36px;transform:translate(-50%,-100%);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.4));">🚌</div>`,
+        iconSize: [36, 36],
+        iconAnchor: [18, 36],
+      });
+
+      // User location marker
+      const userIcon = L.divIcon({
+        className: "user-marker",
+        html: `<div style="font-size:24px;transform:translate(-50%,-50%);">📍</div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+
+      if (userLat && userLng) {
+        L.marker([userLat, userLng], { icon: userIcon, zIndexOffset: 1000 }).addTo(map).bindPopup("Your location");
+      }
+    }
+
+    // ==================== BUS LOADING ====================
+    async function loadBuses() {
+      const { status, data } = await apiCall("/api/public/buses");
+      if (status === 200) {
+        const buses = data.buses || [];
+        const select = document.getElementById("busSelect");
+        select.innerHTML = '<option value="">-- Select a bus to track --</option>' +
+          buses.map(b => `<option value="${b.id}" data-route="${b.routeName || ""}">${b.busNumber}${b.routeName ? ' — ' + b.routeName : ''}</option>`).join("");
+      }
+    }
+
+    document.getElementById("busSelect")?.addEventListener("change", function () {
+      document.getElementById("trackBtn").disabled = !this.value;
+      const selected = this.options[this.selectedIndex];
+      currentBusId = this.value ? parseInt(this.value) : null;
+      currentBusName = this.value ? selected.text : "";
+    });
+
+    // ==================== TRACKING ====================
+    function startTracking() {
+      if (!currentBusId) return;
+      const routeName = document.getElementById("busSelect").options[document.getElementById("busSelect").selectedIndex].dataset.route;
+      currentRoute = routeName || null;
+      document.getElementById("trackBusTitle").textContent = `Tracking: ${currentBusName}`;
+      document.getElementById("trackingInfo").classList.remove("hidden");
+      document.getElementById("trackError").classList.add("hidden");
+      document.getElementById("locationWarning").classList.add("hidden");
+
+      // Initialize bus marker
+      if (busMarker) { map.removeLayer(busMarker); }
+      const busIcon = L.divIcon({
+        className: "bus-marker",
+        html: `<div style="font-size:36px;transform:translate(-50%,-100%);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.4));">🚌</div>`,
+        iconSize: [36, 36],
+        iconAnchor: [18, 36],
+      });
+      busMarker = L.marker([COLLEGE_LOCATION.lat, COLLEGE_LOCATION.lng], { icon: busIcon }).addTo(map);
+
+      connectSocket();
+      fitMapToMarkers();
+
+      // Poll for location every 15 seconds as fallback
+      setInterval(async () => {
+        if (!currentBusId) return;
+        try {
+          const token = localStorage.getItem("busTrackerToken");
+          const res = await fetch(`/api/public/location/${currentBusId}`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (data.status === 200 && data.location) {
+            updateBusLocation(data.location);
+          }
+        } catch (e) {
+          console.log("Polling error:", e.message);
+        }
+      }, 15000);
+
+      document.getElementById("busRoute").textContent = currentRoute || "No route assigned";
+    }
+
+    function connectSocket() {
+      if (socket) socket.disconnect();
+      socket = io();
+
+      socket.on("connect", () => {
+        console.log("Connected to tracking server");
+        // Join the bus room to receive location updates
+        if (currentBusId) {
+          socket.emit("student:join-bus", currentBusId);
+        }
+      });
+
+      socket.on("location:update", (data) => {
+        if (data.busId === currentBusId) {
+          updateBusLocation(data);
+        }
+      });
+
+      socket.on("trip:status", (data) => {
+        if (data.busId === currentBusId) {
+          updateBusStatus(data);
+        }
+      });
+
+      socket.on("connect_error", () => {
+        document.getElementById("lastUpdate").textContent = "Connection lost. Retrying...";
+      });
+
+      socket.on("disconnect", () => {
+        console.log("Socket disconnected");
+      });
+
+      socket.on("reconnect", () => {
+        if (currentBusId) {
+          socket.emit("student:join-bus", currentBusId);
+        }
+      });
+    }
+
+    function updateBusLocation(data) {
+      if (!busMarker) return;
+
+      const lat = parseFloat(data.latitude);
+      const lng = parseFloat(data.longitude);
+      if (isNaN(lat) || isNaN(lng)) return;
+
+      busMarker.setLatLng([lat, lng]);
+      busMarker.bindPopup(`<b>${currentBusName}</b><br>Last update: ${new Date(data.timestamp).toLocaleTimeString()}`).openPopup();
+
+      fitMapToMarkers();
+
+      // Update info panel
+      document.getElementById("lastUpdate").textContent = new Date(data.timestamp).toLocaleTimeString();
+      document.getElementById("gpsAccuracy").textContent = data.accuracy ? `${Math.round(data.accuracy)}m` : "N/A";
+      document.getElementById("locationWarning").classList.add("hidden");
+      document.getElementById("distanceDisplay").textContent = calculateDistance(lat, lng, COLLEGE_LOCATION.lat, COLLEGE_LOCATION.lng);
+
+      if (data.speed !== undefined && data.speed !== null) {
+        document.getElementById("busStatus").textContent = `${Math.round(data.speed * 3.6)} km/h`;
+      } else {
+        document.getElementById("busStatus").textContent = "ACTIVE";
+      }
+      document.getElementById("busStatus").className = "badge badge-success";
+
+      // Hide warning if next update comes
+      if (updateInterval) clearTimeout(updateInterval);
+      updateInterval = setTimeout(() => {
+        const el = document.getElementById("locationWarning");
+        if (!el.classList.contains("hidden")) return;
+        const now = Date.now();
+        const updateTime = new Date(data.timestamp).getTime();
+        if (now - updateTime > 60000) {
+          el.classList.remove("hidden");
+          document.getElementById("busStatus").textContent = "LIVE (stale)";
+          document.getElementById("busStatus").className = "badge badge-warning";
+        }
+      }, 60000);
+    }
+
+    function updateBusStatus(data) {
+      const badge = document.getElementById("busStatus");
+      if (data.status === "ACTIVE") {
+        badge.textContent = "ACTIVE";
+        badge.className = "badge badge-success";
+      } else if (data.status === "INACTIVE") {
+        badge.textContent = "OFFLINE";
+        badge.className = "badge badge-danger";
+        document.getElementById("lastUpdate").textContent = new Date(data.updatedAt).toLocaleTimeString();
+      }
+    }
+
+    function fitMapToMarkers() {
+      const bounds = L.latLngBounds([]);
+      if (collegeMarker) bounds.extend(collegeMarker.getLatLng());
+      if (busMarker && busMarker.getLatLng()) bounds.extend(busMarker.getLatLng());
+      if (userLat && userLng) bounds.extend([userLat, userLng]);
+      if (bounds.isValid()) {
+        map.fitBounds(bounds.pad(0.3), { maxZoom: 16 });
+      }
+    }
+    async function loadRoutes() {
+      try {
+        const res = await fetch("/api/public/routes");
+        const data = await res.json();
+        allRoutes = data.routes || [];
+        renderStopMarkers();
+      } catch (e) {
+        console.error("Failed to load routes:", e);
+      }
+    }
+
+    function getStopsForBus(busId) {
+      // Find buses to get route name, then find route stops
+      const bus = buses.find(b => b.id === busId);
+      if (!bus || !bus.routeName) return [];
+      const route = allRoutes.find(r => r.name === bus.routeName);
+      if (!route || !route.stops) return [];
+      return route.stops;
+    }
+
+    function renderStopMarkers() {
+      // Clear old markers
+      stopMarkers.forEach(m => { if (map.hasLayer(m)) map.removeLayer(m); });
+      stopMarkers = [];
+
+      const stops = getStopsForBus(currentBusId);
+      stops.forEach(stop => {
+        const stopIcon = L.divIcon({
+          className: "",
+          html: `<div style="
+            background: white;
+            border: 2px solid #f59e0b;
+            border-radius: 50%;
+            width: 28px; height: 28px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.3);
+          ">&#128205;</div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        });
+
+        const marker = L.marker([stop.latitude, stop.longitude], { icon: stopIcon })
+          .addTo(map)
+          .bindPopup(`<b>${escapeHtml(stop.name)}</b>`);
+        stopMarkers.push(marker);
+      });
+
+      // Re-fit bounds to include stops
+      if (stopMarkers.length > 0 && busMarker) {
+        const bounds = L.latLngBounds([]);
+        bounds.extend(collegeMarker.getLatLng());
+        if (busMarker.getLatLng()) bounds.extend(busMarker.getLatLng());
+        stopMarkers.forEach(m => bounds.extend(m.getLatLng()));
+        map.fitBounds(bounds.pad(0.2), { maxZoom: 16 });
+      }
+    }
+
+    // ==================== UTILITIES ====================
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+      const toRad = (d) => d * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return HAVERSINE_R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function calculateDistance(lat, lng, collegeLat, collegeLng) {
+      const distKm = haversineDistance(lat, lng, collegeLat, collegeLng);
+      return distKm < 1 ? `${Math.round(distKm * 1000)} m away` : `${distKm.toFixed(1)} km away`;
+    }
+
+    function logout() {
+      const token = localStorage.getItem("busTrackerToken");
+      fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` }
+      }).finally(() => {
+        localStorage.removeItem("busTrackerToken");
+        localStorage.removeItem("busTrackerUser");
+        window.location.href = "/student/login.html";
+      });
+    }
+
+    // ==================== API HELPERS ====================
+    async function apiCall(path, options = {}) {
+      try {
+        const token = localStorage.getItem("busTrackerToken");
+        const headers = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
+        const res = await fetch(path, {
+          ...options,
+          headers: { ...headers, ...(options.headers || {}) },
+        });
+        const data = await res.json();
+        return { status: res.status, data };
+      } catch (err) {
+        return { status: 0, data: { message: "Network error" } };
+      }
+    }
+  </script>
+</body>
+</html>

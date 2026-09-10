@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Student Login — Bus Tracker</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <span class="logo-icon">🚌</span>
+        <h1>Bus Tracker</h1>
+        <p class="auth-subtitle">Student Login</p>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" placeholder="your@email.com" autocomplete="email" />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password" />
+        </div>
+
+        <button type="submit" class="auth-btn">Login</button>
+        <div id="error" class="error-message hidden"></div>
+      </form>
+
+      <div class="auth-footer">
+        <p>Don't have an account? <a href="/student/register.html">Register</a></p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "";
+
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideError("error");
+
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+
+      if (!email || !password) {
+        showError("error", "Please enter email and password.");
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email, password }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          showError("error", data.message || "Login failed.");
+          return;
+        }
+
+        if (data.user.role !== "STUDENT") {
+          showError("error", "This login is for students only. Please use the admin or driver login.");
+          return;
+        }
+
+        window.location.href = "/student/dashboard.html";
+      } catch (err) {
+        showError("error", "Network error. Please try again.");
+      }
+    });
+
+    function showError(id, msg) {
+      const el = document.getElementById(id);
+      el.textContent = msg;
+      el.classList.remove("hidden");
+    }
+    function hideError(id) {
+      const el = document.getElementById(id);
+      el.classList.add("hidden");
+    }
+  </script>
+</body>
+</html>
