@@ -322,7 +322,7 @@ class JsonDatabase {
 }
 
 const db = new JsonDatabase();
-
 // Export bcrypt instance so other modules share the same one
 module.exports = db;
 module.exports._bcrypt = bcrypt;
+

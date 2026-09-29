@@ -86,3 +86,8 @@ function hideError(elementId) {
   const el = document.getElementById(elementId);
   if (el) el.classList.add("hidden");
 }
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
+}
