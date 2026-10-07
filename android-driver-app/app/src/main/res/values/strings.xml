@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bus Tracker</string>
+    <string name="login_title">Driver Login</string>
+    <string name="email_hint">Email</string>
+    <string name="password_hint">Password</string>
+    <string name="login_button">Login</string>
+    <string name="select_bus">Select Bus</string>
+    <string name="start_tracking">Start Tracking</string>
+    <string name="end_trip">End Trip</string>
+    <string name="tracking_active">Tracking Active</string>
+    <string name="gps_acquiring">Acquiring GPS signal…</string>
+    <string name="gps_error">GPS Error</string>
+    <string name="logout">Logout</string>
+    <string name="permission_location_required">Location permission is required for tracking</string>
+    <string name="permission_background_required">Background location access is needed for tracking when the app is closed</string>
+    <string name="permission_notification_required">Notification permission is needed to show tracking status</string>
+    <string name="network_error">Cannot reach server. Is it running?</string>
+    <string name="tracking_notification_title">Tracking Bus</string>
+    <string name="tracking_channel_name">GPS Tracking</string>
+    <string name="tracking_channel_desc">Shows live GPS tracking status</string>
+    <string name="demo_mode">Demo Mode</string>
+</resources>
