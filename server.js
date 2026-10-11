@@ -27,45 +27,6 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files from public directory
 app.use(express.static("public"));
 
-
-
-  // Student
-  if (!db.findUserByEmail("student@test.com")) {
-    db.data.users.push({
-      id: db._nextId("users"), name: "Student", email: "student@test.com",
-      password: bcrypt.hashSync("student123", 10), role: "STUDENT", phone: null, status: "ACTIVE",
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
-    });
-  }
-  // Driver
-  if (!db.findUserByEmail("driver@test.com")) {
-    db.data.users.push({
-      id: db._nextId("users"), name: "Driver Nischay", email: "driver@test.com",
-      password: bcrypt.hashSync("driver123", 10), role: "DRIVER", phone: "+919876543210", status: "ACTIVE",
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
-    });
-  }
-  // Route + stops
-  if (db.data.routes.length === 0) {
-    const routeId = db._nextId("routes");
-    db.data.routes.push({
-      id: routeId, name: "Campus to Hostel", description: "Main route",
-      stops: [
-        { name: "Main Gate", latitude: 12.9350, longitude: 77.5360 },
-        { name: "Bus Stop 1", latitude: 12.9370, longitude: 77.5380 },
-        { name: "Hostel", latitude: 12.9400, longitude: 77.5400 },
-      ],
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
-    });
-  }
-  // Buses
-  if (db.data.buses.length === 0) {
-    db.data.buses.push(
-      { id: db._nextId("buses"), busNumber: "Bus 01", registration: null, routeName: "Campus to Hostel", status: "INACTIVE", driverId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: db._nextId("buses"), busNumber: "Bus 02", registration: null, routeName: "Campus to Hostel", status: "INACTIVE", driverId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-    );
-  }
-
 /* ================= HEALTH CHECK ================= */
 app.get("/", (req, res) => {
   res.json({
