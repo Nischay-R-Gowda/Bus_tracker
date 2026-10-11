@@ -65,9 +65,6 @@ app.use(express.static("public"));
       { id: db._nextId("buses"), busNumber: "Bus 02", registration: null, routeName: "Campus to Hostel", status: "INACTIVE", driverId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     );
   }
-  db._save();
-  res.json({ ok: true, users: db.data.users.length, routes: db.data.routes.length, buses: db.data.buses.length });
-});
 
 /* ================= HEALTH CHECK ================= */
 app.get("/", (req, res) => {
