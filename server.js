@@ -97,6 +97,16 @@ app.get("/", (req, res) => {
   });
 });
 
+/* ================= RENDER HEALTH CHECK ================= */
+
+app.get("/healthz", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    service: "college-bus-tracker",
+    timestamp: new Date().toISOString()
+  });
+});
+
 /* ================= API ROUTES ================= */
 app.use("/api/auth", authRoutes);
 app.use("/api/buses", busRoutes);
@@ -112,11 +122,19 @@ app.use((err, req, res, next) => {
 });
 
 /* ================= START SERVER ================= */
-const PORT = process.env.PORT || 3001;
 
-server.listen(PORT, () => {
-  console.log(`\n========================================`);
-  console.log(`  Bus Tracker Server running on port ${PORT}`);
-  console.log(`  http://localhost:${PORT}`);
-  console.log(`========================================\n`);
+// Render automatically provides PORT in production.
+// Locally, the application uses port 3001.
+const PORT = process.env.PORT || 3001;
+const HOST = "0.0.0.0";
+
+server.listen(PORT, HOST, () => {
+  console.log("\n========================================");
+  console.log("  College Bus Live Tracking System");
+  console.log("========================================");
+  console.log(`  Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(`  Server running on port: ${PORT}`);
+  console.log(`  Listening on: ${HOST}`);
+  console.log("  Socket.IO initialized");
+  console.log("========================================\n");
 });
