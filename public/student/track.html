@@ -48,6 +48,10 @@
           <span id="busStatus" class="badge badge-danger">OFFLINE</span>
         </div>
         <div class="info-item">
+          <span class="info-label">Movement</span>
+          <span id="movementStatus" class="badge badge-not-started">—</span>
+        </div>
+        <div class="info-item">
           <span class="info-label">Last Update</span>
           <span id="lastUpdate">—</span>
         </div>
@@ -64,8 +68,25 @@
           <span id="driverName">—</span>
         </div>
         <div class="info-item">
+          <span class="info-label">Phone</span>
+          <span id="driverPhone">—</span>
+        </div>
+        <div class="info-item">
           <span class="info-label">Route</span>
           <span id="busRoute">—</span>
+        </div>
+        <!-- ETA Section -->
+        <div class="info-item" id="nextStopItem" style="display:none;">
+          <span class="info-label">Next Stop</span>
+          <span id="nextStopName" class="next-stop-badge">—</span>
+        </div>
+        <div class="info-item" id="etaItem" style="display:none;">
+          <span class="info-label">ETA</span>
+          <span id="etaValue" class="eta-value highlight">—</span>
+        </div>
+        <div class="info-item" id="etaDistItem" style="display:none;">
+          <span class="info-label">Remaining</span>
+          <span id="etaDistance">—</span>
         </div>
       </div>
       <p id="locationWarning" class="warning-text hidden">Location may no longer be live. Last update was more than 60 seconds ago.</p>
@@ -75,6 +96,7 @@
     <div id="map" class="map-container"></div>
   </div>
 
+  <script src="/js/gps-utils.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -89,28 +111,84 @@
     let userLat = null;
     let userLng = null;
     let updateInterval = null;
-    let stopMarkers = [];  // Fixed landmark markers
-    let allRoutes = [];    // Cached routes for stop lookup
+    let stopMarkers = [];
+    let routeLine = null;
+    let allRoutes = [];
+    let buses = [];
 
-    const COLLEGE_LOCATION = { lat: 12.9352, lng: 77.5366 };
+    const COLLEGE_LOCATION = { lat: window.COLLEGE_LAT || 15.3647, lng: window.COLLEGE_LNG || 75.1240 };
     const HAVERSINE_R = 6371;
+
+    // Movement tracking
+    let studentGpsReadings = [];
+    let studentMovementInterval = null;
+    const STOP_THRESHOLD_SECONDS = 120;
+    const MOVEMENT_THRESHOLD_MPS = 0.5;
 
     // ==================== INIT ====================
     document.addEventListener("DOMContentLoaded", async () => {
       initMap();
-      await loadBuses();
       await loadRoutes();
+      await loadBuses();
       await checkAuth();
       await detectUserLocation();
     });
 
+    // ==================== ROUTES ====================
+    async function loadRoutes() {
+      try {
+        const res = await fetch("/api/public/routes");
+        const data = await res.json();
+        allRoutes = data.routes || [];
+        updateCollegeMarker();
+      } catch (e) {
+        console.error("Failed to load routes:", e);
+      }
+    }
+
+    function updateCollegeMarker() {
+      // Use the last stop of the first route as the college/destination
+      const route = allRoutes[0];
+      if (!route || !route.stops || route.stops.length === 0) return;
+
+      const lastStop = route.stops[route.stops.length - 1];
+      const collegeName = lastStop.name || window.COLLEGE_NAME || "College";
+
+      COLLEGE_LOCATION.lat = lastStop.latitude;
+      COLLEGE_LOCATION.lng = lastStop.longitude;
+
+      if (collegeMarker && map) {
+        collegeMarker.setLatLng([COLLEGE_LOCATION.lat, COLLEGE_LOCATION.lng]);
+        collegeMarker.setIcon(L.divIcon({
+          className: "college-marker",
+          html: `<div style="background:#2563eb;color:white;padding:4px 10px;border-radius:20px;font-size:13px;font-weight:bold;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.3);">🎓 ${escapeHtml(collegeName)}</div>`,
+          iconSize: [0, 0],
+          iconAnchor: [50, 20],
+        }));
+      }
+    }
+
+    function getStopsForBus(busId) {
+      const bus = buses.find(b => b.id === busId);
+      if (!bus || !bus.routeName) return [];
+      const route = allRoutes.find(r => r.name === bus.routeName);
+      if (!route || !route.stops) return [];
+      return route.stops;
+    }
+
+    function getRouteForBus(busId) {
+      const bus = buses.find(b => b.id === busId);
+      if (!bus || !bus.routeName) return null;
+      return allRoutes.find(r => r.name === bus.routeName) || null;
+    }
+
+    // ==================== AUTH ====================
     function checkAuth() {
       const token = localStorage.getItem("busTrackerToken");
       if (!token) {
         window.location.href = "/student/login.html";
         return Promise.resolve();
       }
-
       return fetch("/api/auth/me", {
         headers: { "Authorization": `Bearer ${token}` }
       })
@@ -138,11 +216,7 @@
       return new Promise((resolve) => {
         if (!navigator.geolocation) { resolve(); return; }
         navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            userLat = pos.coords.latitude;
-            userLng = pos.coords.longitude;
-            resolve();
-          },
+          (pos) => { userLat = pos.coords.latitude; userLng = pos.coords.longitude; resolve(); },
           () => resolve(),
           { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
         );
@@ -157,31 +231,29 @@
         maxZoom: 19,
       }).addTo(map);
 
-      // College marker
+      // College/destination marker — will be updated when routes load
       const collegeIcon = L.divIcon({
         className: "college-marker",
-        html: `<div style="background:#2563eb;color:white;padding:4px 10px;border-radius:20px;font-size:13px;font-weight:bold;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.3);">🎓 College</div>`,
+        html: `<div style="background:#2563eb;color:white;padding:4px 10px;border-radius:20px;font-size:13px;font-weight:bold;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.3);">🎓 ${window.COLLEGE_NAME || "College"}</div>`,
         iconSize: [0, 0],
         iconAnchor: [50, 20],
       });
       collegeMarker = L.marker([COLLEGE_LOCATION.lat, COLLEGE_LOCATION.lng], { icon: collegeIcon }).addTo(map);
 
-      // Bus marker (bus icon)
       const busIcon = L.divIcon({
         className: "bus-marker",
         html: `<div style="font-size:36px;transform:translate(-50%,-100%);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.4));">🚌</div>`,
         iconSize: [36, 36],
         iconAnchor: [18, 36],
       });
+      busMarker = L.marker([COLLEGE_LOCATION.lat, COLLEGE_LOCATION.lng], { icon: busIcon }).addTo(map);
 
-      // User location marker
       const userIcon = L.divIcon({
         className: "user-marker",
         html: `<div style="font-size:24px;transform:translate(-50%,-50%);">📍</div>`,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
       });
-
       if (userLat && userLng) {
         L.marker([userLat, userLng], { icon: userIcon, zIndexOffset: 1000 }).addTo(map).bindPopup("Your location");
       }
@@ -191,7 +263,7 @@
     async function loadBuses() {
       const { status, data } = await apiCall("/api/public/buses");
       if (status === 200) {
-        const buses = data.buses || [];
+        buses = data.buses || [];
         const select = document.getElementById("busSelect");
         select.innerHTML = '<option value="">-- Select a bus to track --</option>' +
           buses.map(b => `<option value="${b.id}" data-route="${b.routeName || ""}">${b.busNumber}${b.routeName ? ' — ' + b.routeName : ''}</option>`).join("");
@@ -215,15 +287,41 @@
       document.getElementById("trackError").classList.add("hidden");
       document.getElementById("locationWarning").classList.add("hidden");
 
-      // Initialize bus marker
-      if (busMarker) { map.removeLayer(busMarker); }
-      const busIcon = L.divIcon({
-        className: "bus-marker",
-        html: `<div style="font-size:36px;transform:translate(-50%,-100%);filter:drop-shadow(0 3px 4px rgba(0,0,0,0.4));">🚌</div>`,
-        iconSize: [36, 36],
-        iconAnchor: [18, 36],
-      });
-      busMarker = L.marker([COLLEGE_LOCATION.lat, COLLEGE_LOCATION.lng], { icon: busIcon }).addTo(map);
+      // Reset movement tracking
+      studentGpsReadings = [];
+      startStudentMovementTracking();
+
+      // Reset route line and stop markers
+      if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+      stopMarkers.forEach(m => map.removeLayer(m));
+      stopMarkers = [];
+
+      // Draw route polyline and landmark markers
+      const stops = getStopsForBus(currentBusId);
+      if (stops.length > 0) {
+        const latLngs = stops.map(s => [s.latitude, s.longitude]);
+        routeLine = L.polyline(latLngs, {
+          color: "#06b6d4", weight: 4, opacity: 0.7,
+          dashArray: "8, 6", lineCap: "round",
+        }).addTo(map);
+
+        stops.forEach((stop, idx) => {
+          const icon = L.divIcon({
+            className: "",
+            html: '<div class="landmark-marker">' + (idx + 1) + '</div>',
+            iconSize: [26, 26], iconAnchor: [13, 13],
+          });
+          const marker = L.marker([stop.latitude, stop.longitude], { icon })
+            .addTo(map)
+            .bindPopup("<b>" + escapeHtml(stop.name) + "</b>" +
+              (idx === 0 ? " (Start)" : idx === stops.length - 1 ? " (End)" : ""));
+          stopMarkers.push(marker);
+        });
+
+        const bounds = L.latLngBounds(latLngs);
+        bounds.extend([COLLEGE_LOCATION.lat, COLLEGE_LOCATION.lng]);
+        map.fitBounds(bounds.pad(0.3), { maxZoom: 15 });
+      }
 
       connectSocket();
       fitMapToMarkers();
@@ -237,15 +335,95 @@
             headers: { "Authorization": `Bearer ${token}` }
           });
           const data = await res.json();
-          if (data.status === 200 && data.location) {
+          if (data.location) {
             updateBusLocation(data.location);
+            // Update driver info from trip
+            if (data.trip && data.trip.driverName) {
+              showDriverInfo(data.trip.driverName, data.trip.driverPhone);
+            }
           }
-        } catch (e) {
-          console.log("Polling error:", e.message);
-        }
+        } catch (e) { console.log("Polling error:", e.message); }
       }, 15000);
 
       document.getElementById("busRoute").textContent = currentRoute || "No route assigned";
+    }
+
+    // ==================== MOVEMENT TRACKING (Student) ====================
+    function startStudentMovementTracking() {
+      stopStudentMovementTracking();
+      studentGpsReadings = [];
+      setMovementBadge("ACQUIRING", "badge-not-started");
+
+      studentMovementInterval = setInterval(() => {
+        if (!currentBusId) { stopStudentMovementTracking(); return; }
+        evaluateStudentMovement();
+      }, 5000);
+    }
+
+    function stopStudentMovementTracking() {
+      if (studentMovementInterval) {
+        clearInterval(studentMovementInterval);
+        studentMovementInterval = null;
+      }
+      studentGpsReadings = [];
+    }
+
+    function recordStudentGpsReading(lat, lng, speed) {
+      studentGpsReadings.push({
+        timestamp: Date.now(),
+        speed: speed || 0,
+        lat, lng,
+      });
+      // Keep only readings within 2x the stale window
+      const cutoff = Date.now() - 180000;
+      studentGpsReadings = studentGpsReadings.filter(r => r.timestamp >= cutoff);
+    }
+
+    function evaluateStudentMovement() {
+      if (studentGpsReadings.length === 0) {
+        setMovementBadge("WAITING", "badge-not-started");
+        return;
+      }
+
+      const now = Date.now();
+      const newest = studentGpsReadings[studentGpsReadings.length - 1];
+      const timeSinceLast = (now - newest.timestamp) / 1000;
+
+      // No recent updates → STALE
+      if (timeSinceLast > 90) {
+        const mins = Math.floor(timeSinceLast / 60);
+        setMovementBadge(`STALE • ${mins} min`, "badge-offline");
+        return;
+      }
+
+      // Check for stop: look at readings in the last 2 minutes
+      const windowStart = now - STOP_THRESHOLD_SECONDS * 1000;
+      const windowReadings = studentGpsReadings.filter(r => r.timestamp >= windowStart);
+
+      if (windowReadings.length >= 2) {
+        const first = windowReadings[0];
+        const last = windowReadings[windowReadings.length - 1];
+        const maxSpeed = Math.max(...windowReadings.map(r => r.speed));
+        const totalDist = haversineDistance(first.lat, first.lng, last.lat, last.lng);
+
+        if (maxSpeed < MOVEMENT_THRESHOLD_MPS && totalDist < 5) {
+          const stoppedDuration = Math.floor((now - first.timestamp) / 1000);
+          const mins = Math.floor(stoppedDuration / 60);
+          const secs = stoppedDuration % 60;
+          const durationStr = mins > 0 ? `${mins} min` : `${secs}s`;
+          setMovementBadge(`STOPPED • ${durationStr}`, "badge-warning");
+          return;
+        }
+      }
+
+      setMovementBadge("MOVING", "badge-live");
+    }
+
+    function setMovementBadge(text, cssClass) {
+      const el = document.getElementById("movementStatus");
+      if (!el) return;
+      el.textContent = text;
+      el.className = "badge " + cssClass;
     }
 
     function connectSocket() {
@@ -254,10 +432,7 @@
 
       socket.on("connect", () => {
         console.log("Connected to tracking server");
-        // Join the bus room to receive location updates
-        if (currentBusId) {
-          socket.emit("student:join-bus", currentBusId);
-        }
+        if (currentBusId) socket.emit("student:join-bus", currentBusId);
       });
 
       socket.on("location:update", (data) => {
@@ -276,17 +451,62 @@
         document.getElementById("lastUpdate").textContent = "Connection lost. Retrying...";
       });
 
-      socket.on("disconnect", () => {
-        console.log("Socket disconnected");
-      });
-
       socket.on("reconnect", () => {
-        if (currentBusId) {
-          socket.emit("student:join-bus", currentBusId);
+        if (currentBusId) socket.emit("student:join-bus", currentBusId);
+      });
+    }
+
+    // ==================== ETA COMPUTATION ====================
+    function computeAndDisplayETA(busLat, busLng) {
+      const stops = getStopsForBus(currentBusId);
+      if (!stops || stops.length === 0) {
+        hideETA();
+        return;
+      }
+
+      const nearest = findNextStop(busLat, busLng, stops);
+      if (!nearest) { hideETA(); return; }
+
+      const { etaMinutes, distanceKm } = calculateETA(nearest.distanceMeters, 25);
+
+      // Show ETA fields
+      document.getElementById("nextStopItem").style.display = "";
+      document.getElementById("etaItem").style.display = "";
+      document.getElementById("etaDistItem").style.display = "";
+
+      document.getElementById("nextStopName").textContent = nearest.name;
+      document.getElementById("etaValue").textContent = etaMinutes + " min";
+      document.getElementById("etaDistance").textContent = distanceKm + " km";
+
+      // Highlight next stop marker on map
+      stopMarkers.forEach((marker, idx) => {
+        if (stops[idx].name === nearest.name) {
+          const icon = L.divIcon({
+            className: "",
+            html: '<div class="landmark-marker next-stop">' + (idx + 1) + '</div>',
+            iconSize: [26, 26], iconAnchor: [13, 13],
+          });
+          marker.setIcon(icon);
+          marker.setZIndexOffset(1000);
+        } else {
+          const icon = L.divIcon({
+            className: "",
+            html: '<div class="landmark-marker">' + (idx + 1) + '</div>',
+            iconSize: [26, 26], iconAnchor: [13, 13],
+          });
+          marker.setIcon(icon);
+          marker.setZIndexOffset(0);
         }
       });
     }
 
+    function hideETA() {
+      document.getElementById("nextStopItem").style.display = "none";
+      document.getElementById("etaItem").style.display = "none";
+      document.getElementById("etaDistItem").style.display = "none";
+    }
+
+    // ==================== LOCATION UPDATE ====================
     function updateBusLocation(data) {
       if (!busMarker) return;
 
@@ -312,7 +532,13 @@
       }
       document.getElementById("busStatus").className = "badge badge-success";
 
-      // Hide warning if next update comes
+      // Record for movement tracking
+      recordStudentGpsReading(lat, lng, data.speed);
+
+      // Compute ETA
+      computeAndDisplayETA(lat, lng);
+
+      // Stale detection
       if (updateInterval) clearTimeout(updateInterval);
       updateInterval = setTimeout(() => {
         const el = document.getElementById("locationWarning");
@@ -323,19 +549,54 @@
           el.classList.remove("hidden");
           document.getElementById("busStatus").textContent = "LIVE (stale)";
           document.getElementById("busStatus").className = "badge badge-warning";
+          setMovementBadge("STALE", "badge-offline");
         }
       }, 60000);
     }
 
     function updateBusStatus(data) {
       const badge = document.getElementById("busStatus");
-      if (data.status === "ACTIVE") {
+      if (data.status === "ENDED") {
+        badge.textContent = "TRIP ENDED";
+        badge.className = "badge badge-offline";
+        setMovementBadge("OFFLINE", "badge-offline");
+        clearDriverInfo();
+      } else if (data.status === "STARTED") {
         badge.textContent = "ACTIVE";
         badge.className = "badge badge-success";
+        // Show driver info if provided in the event
+        if (data.trip) {
+          showDriverInfo(data.trip.driverName, data.trip.driverPhone);
+        }
       } else if (data.status === "INACTIVE") {
         badge.textContent = "OFFLINE";
         badge.className = "badge badge-danger";
-        document.getElementById("lastUpdate").textContent = new Date(data.updatedAt).toLocaleTimeString();
+        setMovementBadge("OFFLINE", "badge-offline");
+        clearDriverInfo();
+      }
+    }
+
+    function showDriverInfo(name, phone) {
+      const driverNameEl = document.getElementById("driverName");
+      const driverPhoneEl = document.getElementById("driverPhone");
+      if (driverNameEl && name) {
+        driverNameEl.textContent = name;
+        driverNameEl.classList.remove("hidden");
+      }
+      if (driverPhoneEl && phone) {
+        driverPhoneEl.textContent = phone;
+        driverPhoneEl.classList.remove("hidden");
+      }
+    }
+
+    function clearDriverInfo() {
+      const driverNameEl = document.getElementById("driverName");
+      const driverPhoneEl = document.getElementById("driverPhone");
+      if (driverNameEl) {
+        driverNameEl.textContent = "—";
+      }
+      if (driverPhoneEl) {
+        driverPhoneEl.textContent = "—";
       }
     }
 
@@ -344,64 +605,9 @@
       if (collegeMarker) bounds.extend(collegeMarker.getLatLng());
       if (busMarker && busMarker.getLatLng()) bounds.extend(busMarker.getLatLng());
       if (userLat && userLng) bounds.extend([userLat, userLng]);
+      stopMarkers.forEach(m => bounds.extend(m.getLatLng()));
+      if (routeLine) bounds.extend(routeLine.getBounds());
       if (bounds.isValid()) {
-        map.fitBounds(bounds.pad(0.3), { maxZoom: 16 });
-      }
-    }
-    async function loadRoutes() {
-      try {
-        const res = await fetch("/api/public/routes");
-        const data = await res.json();
-        allRoutes = data.routes || [];
-        renderStopMarkers();
-      } catch (e) {
-        console.error("Failed to load routes:", e);
-      }
-    }
-
-    function getStopsForBus(busId) {
-      // Find buses to get route name, then find route stops
-      const bus = buses.find(b => b.id === busId);
-      if (!bus || !bus.routeName) return [];
-      const route = allRoutes.find(r => r.name === bus.routeName);
-      if (!route || !route.stops) return [];
-      return route.stops;
-    }
-
-    function renderStopMarkers() {
-      // Clear old markers
-      stopMarkers.forEach(m => { if (map.hasLayer(m)) map.removeLayer(m); });
-      stopMarkers = [];
-
-      const stops = getStopsForBus(currentBusId);
-      stops.forEach(stop => {
-        const stopIcon = L.divIcon({
-          className: "",
-          html: `<div style="
-            background: white;
-            border: 2px solid #f59e0b;
-            border-radius: 50%;
-            width: 28px; height: 28px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 14px;
-            box-shadow: 0 1px 6px rgba(0,0,0,0.3);
-          ">&#128205;</div>`,
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
-        });
-
-        const marker = L.marker([stop.latitude, stop.longitude], { icon: stopIcon })
-          .addTo(map)
-          .bindPopup(`<b>${escapeHtml(stop.name)}</b>`);
-        stopMarkers.push(marker);
-      });
-
-      // Re-fit bounds to include stops
-      if (stopMarkers.length > 0 && busMarker) {
-        const bounds = L.latLngBounds([]);
-        bounds.extend(collegeMarker.getLatLng());
-        if (busMarker.getLatLng()) bounds.extend(busMarker.getLatLng());
-        stopMarkers.forEach(m => bounds.extend(m.getLatLng()));
         map.fitBounds(bounds.pad(0.2), { maxZoom: 16 });
       }
     }
@@ -421,6 +627,7 @@
     }
 
     function logout() {
+      stopStudentMovementTracking();
       const token = localStorage.getItem("busTrackerToken");
       fetch("/api/auth/logout", {
         method: "POST",

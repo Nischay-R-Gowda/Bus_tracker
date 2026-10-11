@@ -1,2 +1,17 @@
-node_modules/
+﻿node_modules/
 .env
+
+# Android Studio and Gradle
+.idea/
+*.iml
+.gradle/
+**/.gradle/
+**/build/
+local.properties
+**/local.properties
+
+# Local Claude settings
+.claude/settings.local.json
+
+# Logs
+*.log

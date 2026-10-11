@@ -44,15 +44,19 @@ router.post("/start", authenticate, driverOnly, (req, res) => {
 
     const trip = db.getActiveTripByBus(parseInt(busId));
 
+    // Enrich trip with driver info for student display
+    const driver = db.findUserById(req.user.id);
+    const enrichedTrip = driver ? { ...trip, driverName: driver.name, driverPhone: driver.phone } : trip;
+
     // Broadcast trip started to students watching this bus
     const io = req.app.get("io");
     if (io) {
-      io.to(`bus-${busId}`).emit("trip:status", { busId, status: "STARTED", trip });
+      io.to(`bus-${busId}`).emit("trip:status", { busId, status: "STARTED", trip: enrichedTrip });
     }
 
     res.status(201).json({
       message: "Trip started successfully.",
-      trip,
+      trip: enrichedTrip,
     });
   } catch (err) {
     console.error("Start trip error:", err);
@@ -101,7 +105,11 @@ router.post("/stop", authenticate, driverOnly, (req, res) => {
 
 router.get("/active", authenticate, anyAuth, (req, res) => {
   try {
-    const trips = db.getAllTrips().filter(t => t.status === "ACTIVE");
+    const trips = db.getAllTrips().filter(t => t.status === "ACTIVE").map(t => {
+      if (!t.driverId) return t;
+      const driver = db.findUserById(t.driverId);
+      return { ...t, driverName: driver ? driver.name : null, driverPhone: driver ? driver.phone : null };
+    });
 
     res.json({ trips });
   } catch (err) {
@@ -133,11 +141,15 @@ router.get("/my-trip", authenticate, driverOnly, (req, res) => {
       return res.json({ trip: null });
     }
 
+    // Enrich trip with driver info
+    const driver = db.findUserById(trip.driverId);
+    const enrichedTrip = { ...trip, driverName: driver ? driver.name : null, driverPhone: driver ? driver.phone : null };
+
     const bus = db.getBusById(trip.busId);
     const latestLocation = db.getLatestLocation(trip.busId);
 
     res.json({
-      trip,
+      trip: enrichedTrip,
       bus,
       latestLocation,
     });

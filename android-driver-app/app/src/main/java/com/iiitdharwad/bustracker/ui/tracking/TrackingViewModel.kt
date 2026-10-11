@@ -45,8 +45,30 @@ class TrackingViewModel(
         )
         socketManager.joinBusRoom(bus.id)
 
-        // Start polling my-trip for latest location as fallback
+        // Start polling for location updates
         startLocationPolling()
+
+        // Check for an existing active trip (resume after logout/reconnect)
+        viewModelScope.launch {
+            val result = apiRepository.getMyTrip()
+            result.onSuccess { resp ->
+                val trip = resp.trip
+                if (trip != null && trip.busId == bus.id && trip.status == "ACTIVE") {
+                    // Resume: load existing trip into state, start GPS to send updates
+                    _ui.value = _ui.value.copy(
+                        tripStarted = true,
+                        trip = trip,
+                        latestLocation = resp.latestLocation,
+                        lastUpdateTime = resp.latestLocation?.timestamp ?: ""
+                    )
+                    GpsForegroundService.startService(context, bus.id, bus.busNumber)
+                }
+                // If no existing trip for this bus, tripStarted stays false
+                // — driver will see the "Start Trip" button as normal
+            }.onFailure {
+                // Network error: leave state as-is, driver can retry "Start Trip"
+            }
+        }
     }
 
     // Called when driver taps "Start Trip" button
@@ -144,6 +166,11 @@ class TrackingViewModel(
                     .onFailure { /* silent fallback */ }
             }
         }
+    }
+
+    // Called from NavGraph on logout — clears all state without API calls
+    fun resetState() {
+        _ui.value = TrackingUiState()
     }
 
     override fun onCleared() {

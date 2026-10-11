@@ -25,13 +25,27 @@ class BusSelectionViewModel(
     fun loadBuses() {
         _ui.value = _ui.value.copy(loading = true, error = null)
         viewModelScope.launch {
-            apiRepository.getBuses()
-                .onSuccess { buses ->
-                    _ui.value = _ui.value.copy(buses = buses, loading = false)
+            // Load buses and check for existing active trip in parallel
+            val busesResult = apiRepository.getBuses()
+            val myTripResult = apiRepository.getMyTrip()
+
+            val buses = busesResult.getOrNull() ?: emptyList()
+            val myTrip = myTripResult.getOrNull()?.trip
+
+            val enrichedBuses = if (myTrip != null) {
+                buses.map { bus ->
+                    bus.copy(hasExistingTrip = bus.id == myTrip.busId)
                 }
-                .onFailure { err ->
-                    _ui.value = _ui.value.copy(loading = false, error = err.message)
-                }
+            } else {
+                buses.map { bus -> bus.copy(hasExistingTrip = false) }
+            }
+
+            _ui.value = _ui.value.copy(
+                buses = enrichedBuses,
+                loading = false,
+                error = busesResult.exceptionOrNull()?.message
+                    ?: myTripResult.exceptionOrNull()?.message
+            )
         }
     }
 

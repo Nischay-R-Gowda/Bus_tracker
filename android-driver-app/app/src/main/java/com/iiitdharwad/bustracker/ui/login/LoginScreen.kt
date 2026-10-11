@@ -61,17 +61,6 @@ fun LoginScreen(
             )
 
             OutlinedTextField(
-                value = ui.backendUrl,
-                onValueChange = { viewModel.onBackendUrlChange(it) },
-                label = { Text("Server URL") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !ui.loading
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            OutlinedTextField(
                 value = ui.email,
                 onValueChange = { viewModel.onEmailChange(it) },
                 label = { Text("Email") },

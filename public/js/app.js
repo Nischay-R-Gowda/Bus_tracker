@@ -1,8 +1,8 @@
 // Shared client-side utilities
 
 // ===== CONFIGURATION — CHANGE THESE FOR YOUR COLLEGE =====
-window.COLLEGE_LAT = 15.3647;  // College latitude
-window.COLLEGE_LNG = 75.1240;  // College longitude
+window.COLLEGE_LAT = 15.39186;  // College latitude
+window.COLLEGE_LNG = 75.02470;  // College longitude
 window.COLLEGE_NAME = "College Campus";
 
 const API_BASE = "";

@@ -1,6 +1,7 @@
 package com.iiitdharwad.bustracker.ui.busselection
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,7 +28,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,11 +36,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.MultiplePermissionsState
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.google.accompanist.permissions.shouldShowRationale
 import com.iiitdharwad.bustracker.data.model.Bus
 import com.iiitdharwad.bustracker.util.PermissionHelper
 
@@ -51,24 +55,32 @@ fun BusSelectionScreen(
 ) {
     val ui by viewModel.ui.collectAsState()
 
-    // Location permissions state
-    val locationPerms = rememberMultiplePermissionsState(
-        permissions = PermissionHelper.locationPermissions()
+    // Permission state — all required perms including notifications + background location
+    val allPerms = rememberMultiplePermissionsState(
+        permissions = PermissionHelper.allRequiredPermissions()
     )
-    var showPermissionRationale by remember { mutableStateOf(false) }
 
-    // Track which bus was selected (pending permission check)
-    var pendingBus by remember { mutableStateOf<Bus?>(null) }
-    var awaitingPermission by remember { mutableStateOf(false) }
+    // Track pending bus (waiting for permission grant)
+    var pendingBusId by remember { mutableStateOf<Int?>(null) }
+    var showPermissionCard by remember { mutableStateOf(false) }
+    var showRationaleText by remember { mutableStateOf(false) }
 
-    // If permissions granted and we have a pending bus, navigate
-    SideEffect {
-        if (awaitingPermission && pendingBus != null && locationPerms.allPermissionsGranted) {
-            awaitingPermission = false
-            val bus = pendingBus
-            pendingBus = null
+    // When permissions are granted and we have a pending bus, navigate
+    LaunchedEffect(allPerms.allPermissionsGranted, pendingBusId) {
+        if (allPerms.allPermissionsGranted && pendingBusId != null) {
+            val busId = pendingBusId!!
+            pendingBusId = null
+            showPermissionCard = false
+            showRationaleText = false
+            val bus = ui.buses.find { it.id == busId }
             bus?.let { onNavigateToTracking(it) }
         }
+    }
+
+    // Check if we should show rationale when user has previously denied
+    LaunchedEffect(allPerms.permissions) {
+        val anyDenied = allPerms.permissions.any { it.status.shouldShowRationale }
+        showRationaleText = anyDenied && !allPerms.allPermissionsGranted
     }
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -107,27 +119,16 @@ fun BusSelectionScreen(
                 )
             }
 
-            // Permission request card when awaiting
-            if (awaitingPermission) {
+            // Permission request card
+            if (showPermissionCard) {
                 PermissionRequestCard(
-                    permissionsState = locationPerms,
-                    onGranted = {
-                        pendingBus?.let { bus ->
-                            pendingBus = null
-                            onNavigateToTracking(bus)
-                        }
-                    },
-                    onRationaleShown = { showPermissionRationale = true }
+                    permissionsState = allPerms,
+                    showRationale = showRationaleText,
+                    onDismissed = {
+                        showPermissionCard = false
+                    }
                 )
-                if (showPermissionRationale) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Location permission is required for GPS tracking. Please grant all permissions to continue.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
-                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
             if (ui.loading && ui.buses.isEmpty()) {
@@ -143,22 +144,25 @@ fun BusSelectionScreen(
                     items(ui.buses) { bus ->
                         BusCard(
                             bus = bus,
+                            hasExistingTrip = bus.hasExistingTrip,
                             selected = ui.selectedBus?.id == bus.id,
                             onCardClick = {
-                                // Only allow selecting AVAILABLE buses
-                                if (bus.status != "ACTIVE") {
+                                if (!bus.hasExistingTrip && bus.status != "ACTIVE") {
                                     viewModel.selectBus(bus)
                                 }
                             },
                             onStart = {
-                                // Request permissions before navigating to tracking
-                                if (locationPerms.allPermissionsGranted) {
+                                if (allPerms.allPermissionsGranted) {
                                     onNavigateToTracking(bus)
                                 } else {
-                                    pendingBus = bus
-                                    awaitingPermission = true
-                                    locationPerms.launchMultiplePermissionRequest()
+                                    pendingBusId = bus.id
+                                    showPermissionCard = true
+                                    showRationaleText = false
+                                    allPerms.launchMultiplePermissionRequest()
                                 }
+                            },
+                            onResume = {
+                                onNavigateToTracking(bus)
                             }
                         )
                     }
@@ -168,12 +172,60 @@ fun BusSelectionScreen(
     }
 }
 
+@OptIn(ExperimentalPermissionsApi::class)
+@Composable
+private fun PermissionRequestCard(
+    permissionsState: MultiplePermissionsState,
+    showRationale: Boolean,
+    onDismissed: () -> Unit
+) {
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Icon(Icons.Default.LocationOff, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                Spacer(modifier = Modifier.padding(start = 8.dp))
+                Text("Location Permission Required", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onErrorContainer)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                if (showRationale) {
+                    "Location permission was denied. Please grant location access so the app can track the bus GPS. If you see 'Don't ask again', go to Settings > Apps > Bus Tracker > Permissions and enable Location."
+                } else {
+                    "GPS tracking needs location access. Please grant all location permissions to continue."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                if (showRationale) {
+                    androidx.compose.material3.TextButton(onClick = onDismissed) {
+                        Text("Cancel")
+                    }
+                    Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                }
+                Button(onClick = { permissionsState.launchMultiplePermissionRequest() }) {
+                    Text(if (showRationale) "Open Settings / Retry" else "Grant Permissions")
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun BusCard(
     bus: com.iiitdharwad.bustracker.data.model.Bus,
+    hasExistingTrip: Boolean,
     selected: Boolean,
     onCardClick: () -> Unit,
-    onStart: () -> Unit
+    onStart: () -> Unit,
+    onResume: () -> Unit
 ) {
     val isActive = bus.status == "ACTIVE"
     val statusColor = if (isActive) {
@@ -181,26 +233,34 @@ private fun BusCard(
     } else {
         MaterialTheme.colorScheme.outline
     }
-    val statusText = if (isActive) "Active" else "Available"
-    val cardAlpha = if (isActive) 0.5f else 1f
+    val isCardEnabled = !isActive || hasExistingTrip
+    val cardAlpha = if (isCardEnabled) 1f else 0.5f
+    val statusText = if (isActive) {
+        if (hasExistingTrip) "Your Active Trip" else "In Use"
+    } else {
+        "Available"
+    }
 
     androidx.compose.material3.Card(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .then(if (isActive) Modifier else Modifier.clickable(onClick = onCardClick)),
+            .then(if (isCardEnabled) Modifier.clickable(onClick = {
+                if (hasExistingTrip) onResume() else onCardClick()
+            }) else Modifier),
         colors = androidx.compose.material3.CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surface
+            containerColor = when {
+                hasExistingTrip -> MaterialTheme.colorScheme.primaryContainer
+                selected -> MaterialTheme.colorScheme.primaryContainer
+                else -> MaterialTheme.colorScheme.surface
+            }
         ),
-        border = if (selected) androidx.compose.material3.CardDefaults.outlinedCardBorder().copy(
+        border = if (selected || hasExistingTrip) androidx.compose.material3.CardDefaults.outlinedCardBorder().copy(
             width = 2.dp
         ) else null
     ) {
         androidx.compose.foundation.layout.Box(
-            modifier = Modifier
-                .padding(16.dp)
-                .then(if (isActive) Modifier else Modifier)
+            modifier = Modifier.padding(16.dp)
         ) {
             Column(modifier = Modifier.alpha(cardAlpha)) {
                 Row(
@@ -211,7 +271,7 @@ private fun BusCard(
                     Text(
                         text = bus.busNumber,
                         style = MaterialTheme.typography.titleLarge,
-                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                        color = if (selected || hasExistingTrip) MaterialTheme.colorScheme.onPrimaryContainer
                         else MaterialTheme.colorScheme.onSurface
                     )
                     Box(
@@ -231,7 +291,16 @@ private fun BusCard(
                         modifier = Modifier.padding(top = 4.dp)
                     )
                 }
-                if (selected) {
+                if (hasExistingTrip) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = onResume,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text("Resume Trip")
+                    }
+                } else if (selected && !isActive) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
                         onClick = onStart,
@@ -240,47 +309,6 @@ private fun BusCard(
                         Text("Start Trip")
                     }
                 }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalPermissionsApi::class)
-@Composable
-private fun PermissionRequestCard(
-    permissionsState: MultiplePermissionsState,
-    onGranted: () -> Unit,
-    onRationaleShown: () -> Unit
-) {
-    val denied = permissionsState.permissions.filter { it.status.shouldShowRationale }
-
-    androidx.compose.runtime.LaunchedEffect(permissionsState.allPermissionsGranted) {
-        if (permissionsState.allPermissionsGranted) {
-            onGranted()
-        } else if (denied.isNotEmpty()) {
-            onRationaleShown()
-        }
-    }
-
-    androidx.compose.material3.Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Icon(Icons.Default.LocationOff, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                Spacer(modifier = Modifier.padding(start = 8.dp))
-                Text("Location Permission Required", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onErrorContainer)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "GPS tracking needs location access. Please grant all location permissions to continue.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onErrorContainer
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(onClick = { permissionsState.launchMultiplePermissionRequest() }) {
-                Text("Grant Permissions")
             }
         }
     }

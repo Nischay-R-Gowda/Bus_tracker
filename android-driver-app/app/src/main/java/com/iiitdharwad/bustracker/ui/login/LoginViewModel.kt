@@ -13,7 +13,6 @@ import kotlinx.coroutines.launch
 data class LoginUiState(
     val email: String = "",
     val password: String = "",
-    val backendUrl: String = "http://10.0.11.159:3001",
     val loading: Boolean = false,
     val error: String? = null,
     val loginSuccess: Boolean = false
@@ -29,10 +28,8 @@ class LoginViewModel(
 
     init {
         viewModelScope.launch {
-            val url = tokenManager.getBackendUrl("http://10.0.11.159:3001")
-            _ui.value = _ui.value.copy(backendUrl = url)
-            apiRepository.updateBackendUrl(url)
-            socketManager.updateBackendUrl(url)
+            apiRepository.updateBackendUrl(BASE_URL)
+            socketManager.updateBackendUrl(BASE_URL)
         }
     }
 
@@ -44,15 +41,6 @@ class LoginViewModel(
         _ui.value = _ui.value.copy(password = password, error = null)
     }
 
-    fun onBackendUrlChange(url: String) {
-        _ui.value = _ui.value.copy(backendUrl = url, error = null)
-        viewModelScope.launch {
-            tokenManager.saveBackendUrl(url)
-            apiRepository.updateBackendUrl(url)
-            socketManager.updateBackendUrl(url)
-        }
-    }
-
     fun login() {
         val state = _ui.value
         if (state.email.isBlank() || state.password.isBlank()) {
@@ -61,10 +49,6 @@ class LoginViewModel(
         }
         _ui.value = state.copy(loading = true, error = null)
         viewModelScope.launch {
-            tokenManager.saveBackendUrl(state.backendUrl)
-            apiRepository.updateBackendUrl(state.backendUrl)
-            socketManager.updateBackendUrl(state.backendUrl)
-
             apiRepository.login(state.email, state.password)
                 .onSuccess {
                     _ui.value = _ui.value.copy(loading = false, loginSuccess = true)
@@ -73,5 +57,9 @@ class LoginViewModel(
                     _ui.value = _ui.value.copy(loading = false, error = err.message)
                 }
         }
+    }
+
+    companion object {
+        const val BASE_URL = "http://10.0.11.159:3001"
     }
 }

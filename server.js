@@ -27,22 +27,8 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files from public directory
 app.use(express.static("public"));
 
-/* ================= TEST SEED (dev only) ================= */
-app.post("/api/test/seed", (req, res) => {
-  const db = require("../database/db");
-  const bcrypt = require("bcryptjs");
-  if (!db.data.routes) db.data.routes = [];
-  if (!db.data._counters.routes) db.data._counters.routes = 0;
 
-  // Ensure admin exists
-  let admin = db.findUserByEmail("admin@test.com");
-  if (!admin) {
-    db.data.users.push({
-      id: db._nextId("users"), name: "Admin", email: "admin@test.com",
-      password: bcrypt.hashSync("admin123", 10), role: "ADMIN", phone: null, status: "ACTIVE",
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
-    });
-  }
+
   // Student
   if (!db.findUserByEmail("student@test.com")) {
     db.data.users.push({

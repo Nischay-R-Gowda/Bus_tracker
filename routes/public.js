@@ -71,7 +71,20 @@ router.get("/location/:busId", (req, res) => {
       location,
       bus: { id: bus.id, busNumber: bus.busNumber, routeName: bus.routeName, status: bus.status },
       freshness: { status: freshnessStatus, message: freshnessMessage, ageSeconds },
-      trip: trip ? { id: trip.id, status: trip.status, startTime: trip.startTime } : null,
+      trip: trip ? {
+        id: trip.id,
+        status: trip.status,
+        startTime: trip.startTime,
+        driverId: trip.driverId,
+        driverName: (() => {
+          const d = trip.driverId ? db.findUserById(trip.driverId) : null;
+          return d ? d.name : null;
+        })(),
+        driverPhone: (() => {
+          const d = trip.driverId ? db.findUserById(trip.driverId) : null;
+          return d ? d.phone : null;
+        })(),
+      } : null,
     });
   } catch (err) {
     console.error("Get public location error:", err);
@@ -105,7 +118,11 @@ router.get("/location/:busId/history", (req, res) => {
 
 router.get("/trips/active", (req, res) => {
   try {
-    const trips = db.getAllTrips().filter(t => t.status === "ACTIVE");
+    const trips = db.getAllTrips().filter(t => t.status === "ACTIVE").map(t => {
+      if (!t.driverId) return t;
+      const driver = db.findUserById(t.driverId);
+      return { ...t, driverName: driver ? driver.name : null, driverPhone: driver ? driver.phone : null };
+    });
     res.json({ trips });
   } catch (err) {
     console.error("Get public active trips error:", err);

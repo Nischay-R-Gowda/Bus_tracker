@@ -9,6 +9,13 @@ data class Trip(
     val endTime: String?
 )
 
+data class BusInfo(
+    val id: Int,
+    val busNumber: String,
+    val routeName: String?,
+    val status: String
+)
+
 data class MyTripResponse(
     val trip: Trip?,
     val bus: Bus?,

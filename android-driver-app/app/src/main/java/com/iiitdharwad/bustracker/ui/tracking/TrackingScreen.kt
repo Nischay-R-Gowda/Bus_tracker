@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +27,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.iiitdharwad.bustracker.data.model.LocationPoint
 import com.iiitdharwad.bustracker.service.GpsForegroundService
 import org.osmdroid.config.Configuration
@@ -53,7 +56,8 @@ import org.osmdroid.views.overlay.Marker
 @Composable
 fun TrackingScreen(
     viewModel: TrackingViewModel,
-    onTripEnded: () -> Unit
+    onTripEnded: () -> Unit,
+    onLogout: () -> Unit
 ) {
     val ui by viewModel.ui.collectAsState()
     val context = LocalContext.current
@@ -61,6 +65,7 @@ fun TrackingScreen(
     var busMarker by remember { mutableStateOf<Marker?>(null) }
     var movementReceiver by remember { mutableStateOf<BroadcastReceiver?>(null) }
     var showEndConfirm by remember { mutableStateOf(false) }
+    var showLogoutConfirm by remember { mutableStateOf(false) }
 
     // Setup OSMDroid
     LaunchedEffect(Unit) {
@@ -83,7 +88,7 @@ fun TrackingScreen(
             }
         }
         val filter = IntentFilter(GpsForegroundService.ACTION_MOVEMENT_UPDATE)
-        context.registerReceiver(movementReceiver, filter)
+        ContextCompat.registerReceiver(context, movementReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         onDispose {
             try { context.unregisterReceiver(movementReceiver) } catch (e: Exception) {}
             movementReceiver = null
@@ -135,7 +140,13 @@ fun TrackingScreen(
                     Spacer(modifier = Modifier.padding(start = 8.dp))
                     Text("Tracking: ${ui.busNumber}", style = MaterialTheme.typography.titleMedium)
                 }
-                MovementBadge(status = ui.movementStatus)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MovementBadge(status = ui.movementStatus)
+                    Spacer(modifier = Modifier.padding(start = 8.dp))
+                    OutlinedButton(onClick = { showLogoutConfirm = true }) {
+                        Text("Logout")
+                    }
+                }
             }
 
             // Map
@@ -195,15 +206,44 @@ fun TrackingScreen(
             }
         )
     }
+
+    // Logout confirmation dialog
+    if (showLogoutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirm = false },
+            title = { Text("Logout?") },
+            text = {
+                if (ui.tripStarted) {
+                    Text("You have an active trip. Please end the trip before logging out. If you log out without ending, the trip will continue on the server but you will stop sending GPS updates.")
+                } else {
+                    Text("You will be returned to the login screen.")
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showLogoutConfirm = false
+                    onLogout()
+                }) {
+                    Text("Logout")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showLogoutConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
-private fun PreTripControls(
-    ui: com.iiitdharwad.bustracker.ui.tracking.TrackingUiState,
-    onStartTrip: () -> Unit
+private fun ColumnScope.PreTripControls(
+    ui: TrackingUiState,
+    onStartTrip: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .weight(1f)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -249,12 +289,13 @@ private fun PreTripControls(
 }
 
 @Composable
-private fun PostTripStats(
-    ui: com.iiitdharwad.bustracker.ui.tracking.TrackingUiState,
-    onEndTrip: () -> Unit
+private fun ColumnScope.PostTripStats(
+    ui: TrackingUiState,
+    onEndTrip: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .weight(1f)
             .verticalScroll(rememberScrollState())
             .padding(16.dp),

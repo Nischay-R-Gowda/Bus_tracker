@@ -60,4 +60,103 @@ function calculateETA(distanceMeters, speedKmh = 25) {
   return { etaMinutes, distanceKm: Math.round(distanceKm * 100) / 100 };
 }
 
+/**
+ * Find the nearest stop/landmark to the given bus position.
+ * Returns the stop with the smallest haversine distance.
+ * @param {number} lat - Bus latitude
+ * @param {number} lng - Bus longitude
+ * @param {Array<{name: string, latitude: number, longitude: number}>} stops
+ * @returns {{ name: string, distanceMeters: number } | null}
+ */
+function findNextStop(lat, lng, stops) {
+  if (!stops || stops.length === 0) return null;
+
+  let nearest = null;
+  let minDist = Infinity;
+
+  for (const stop of stops) {
+    const dist = haversineDistance(lat, lng, stop.latitude, stop.longitude);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = stop;
+    }
+  }
+
+  return nearest ? { name: nearest.name, distanceMeters: minDist } : null;
+}
+
+/**
+ * Build cumulative segment distances along a list of stops (in order).
+ * Returns an array of { fromIndex, toIndex, distanceMeters, cumulativeMeters }.
+ * @param {Array<{latitude: number, longitude: number}>} stops
+ * @returns {Array<{fromIndex: number, toIndex: number, distanceMeters: number, cumulativeMeters: number}>}
+ */
+function buildSegmentDistances(stops) {
+  const segments = [];
+  let cumulative = 0;
+  for (let i = 0; i < stops.length - 1; i++) {
+    const d = haversineDistance(stops[i].latitude, stops[i].longitude, stops[i + 1].latitude, stops[i + 1].longitude);
+    cumulative += d;
+    segments.push({
+      fromIndex: i,
+      toIndex: i + 1,
+      distanceMeters: d,
+      cumulativeMeters: cumulative,
+    });
+  }
+  return segments;
+}
+
+/**
+ * Given stops (ordered start → end), find the next upcoming stop
+ * from the bus's current position along the route direction.
+ *
+ * Strategy:
+ * 1. Find the nearest stop → index i
+ * 2. The next stop is stops[i + 1] (or stops[i] if at the end)
+ * 3. ETA uses distance from bus to that next stop at average speed
+ *
+ * @param {number} busLat
+ * @param {number} busLng
+ * @param {Array<{name: string, latitude: number, longitude: number}>} stops
+ * @param {Array} segments - from buildSegmentDistances (unused here, reserved for future)
+ * @param {number} avgSpeedKmh - average bus speed
+ * @returns {{ etaMinutes: number, distanceKm: number, nextStopName: string }}
+ */
+function estimateETA(busLat, busLng, stops, segments, avgSpeedKmh = 25) {
+  if (!stops || stops.length === 0) {
+    return { etaMinutes: null, distanceKm: null, nextStopName: null };
+  }
+
+  // Find nearest stop index
+  let nearestIdx = 0;
+  let minDist = Infinity;
+  for (let i = 0; i < stops.length; i++) {
+    const d = haversineDistance(busLat, busLng, stops[i].latitude, stops[i].longitude);
+    if (d < minDist) {
+      minDist = d;
+      nearestIdx = i;
+    }
+  }
+
+  // The next stop is the one after the nearest in route order
+  let targetIdx;
+  if (nearestIdx >= stops.length - 1) {
+    // Bus is at or past the last stop — destination reached
+    targetIdx = stops.length - 1;
+  } else {
+    targetIdx = nearestIdx + 1;
+  }
+
+  const targetStop = stops[targetIdx];
+  const distToTarget = haversineDistance(busLat, busLng, targetStop.latitude, targetStop.longitude);
+  const { etaMinutes, distanceKm } = calculateETA(distToTarget, avgSpeedKmh);
+
+  return {
+    etaMinutes,
+    distanceKm,
+    nextStopName: targetStop.name,
+  };
+}
+
 // GPS utility functions for browser use

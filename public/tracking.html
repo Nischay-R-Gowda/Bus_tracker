@@ -82,18 +82,36 @@
     // ==================== STATE ====================
     let socket = null;
     let buses = [];
-    let busCards = {};  // { busId: { map, marker, lastTimestamp, lastLat, lastLng } }
+    let busCards = {};  // { busId: { map, marker, lastTimestamp, lastLat, lastLng, routeLine, landmarkMarkers, routeInfo } }
+    let allRoutes = [];
 
     // College location from app.js configuration
     const COLLEGE_LAT = window.COLLEGE_LAT;
     const COLLEGE_LNG = window.COLLEGE_LNG;
 
     // ==================== INIT ====================
-    document.addEventListener("DOMContentLoaded", () => {
+    document.addEventListener("DOMContentLoaded", async () => {
+      await loadRoutes();
       loadBuses();
       connectSocket();
       setInterval(updateTimeStamps, 10000);
     });
+
+    // ==================== ROUTES ====================
+    async function loadRoutes() {
+      try {
+        const res = await fetch("/api/public/routes");
+        const data = await res.json();
+        allRoutes = data.routes || [];
+      } catch (e) {
+        console.error("Failed to load routes:", e);
+      }
+    }
+
+    function getRouteForBus(bus) {
+      if (!bus.routeName) return null;
+      return allRoutes.find(r => r.name === bus.routeName) || null;
+    }
 
     // ==================== LOAD BUSES ====================
     async function loadBuses() {
@@ -131,6 +149,8 @@
       });
 
       const html = buses.map(bus => {
+        const route = getRouteForBus(bus);
+        const stops = route ? route.stops.map(s => s.name).join(" → ") : "No route";
         return `
           <div class="bus-card" id="bus-card-${bus.id}">
             <div class="bus-card-header">
@@ -149,12 +169,23 @@
               <div id="map-${bus.id}" class="map"></div>
             </div>
             <div class="bus-card-info">
-              <div class="bus-meta">
-                👤 ${escapeHtml(bus.driverName || "Unassigned")}
+              <div class="bus-meta" id="bus-driver-${bus.id}">
+                Driver: ${escapeHtml(bus.driverName || "Unassigned")}
               </div>
               <span id="bus-time-${bus.id}" style="font-size:0.8rem;color:var(--text-muted);">—</span>
             </div>
-            <div class="bus-details" id="bus-details-${bus.id}" style="padding: 0 20px 14px;"></div>
+            <div class="bus-eta-section" id="bus-eta-${bus.id}">
+              <div class="eta-row">
+                <span class="eta-label">Route</span>
+                <span class="eta-value">${escapeHtml(stops)}</span>
+              </div>
+              <div id="bus-eta-details-${bus.id}">
+                <div class="eta-row">
+                  <span class="eta-label">Status</span>
+                  <span class="eta-value">Waiting for GPS...</span>
+                </div>
+              </div>
+            </div>
           </div>
         `;
       }).join("");
@@ -208,12 +239,53 @@
         icon: busIcon,
       }).addTo(map);
 
+      const route = getRouteForBus(bus);
+      let routeLine = null;
+      let landmarkMarkers = [];
+      let nextStopName = null;
+
+      // Draw route polyline + landmark markers if route has stops
+      if (route && route.stops && route.stops.length > 0) {
+        const latLngs = route.stops.map(s => [s.latitude, s.longitude]);
+
+        routeLine = L.polyline(latLngs, {
+          color: "#06b6d4",
+          weight: 4,
+          opacity: 0.7,
+          dashArray: "8, 6",
+          lineCap: "round",
+        }).addTo(map);
+
+        landmarkMarkers = route.stops.map((stop, idx) => {
+          const markerIcon = L.divIcon({
+            className: "",
+            html: '<div class="landmark-marker">' + (idx + 1) + '</div>',
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+          });
+          const marker = L.marker([stop.latitude, stop.longitude], { icon: markerIcon })
+            .addTo(map)
+            .bindPopup("<b>" + escapeHtml(stop.name) + "</b>" +
+              (idx === 0 ? " (Start)" : idx === route.stops.length - 1 ? " (End)" : ""));
+          return marker;
+        });
+
+        // Fit bounds to route
+        const allPoints = latLngs.slice();
+        allPoints.push([COLLEGE_LAT, COLLEGE_LNG]);
+        const bounds = L.latLngBounds(allPoints);
+        map.fitBounds(bounds.pad(0.3), { maxZoom: 15 });
+      }
+
       busCards[bus.id] = {
         map: map,
         marker: busMarker,
         lastTimestamp: null,
         lastLat: null,
         lastLng: null,
+        routeLine: routeLine,
+        landmarkMarkers: landmarkMarkers,
+        routeInfo: route,
       };
     }
 
@@ -230,17 +302,20 @@
           // No location data — check trip status
           if (data.trip && data.trip.status === "ACTIVE") {
             updateBusStatus(busId, "WAITING", "Waiting for GPS...");
-            updateBusDetails(busId, { status: "waiting", message: "Trip started, awaiting first GPS fix." });
+            updateETA(busId, null, "Waiting for GPS fix");
           } else {
             updateBusStatus(busId, "NOT_STARTED", "Not started");
-            updateBusDetails(busId, { status: "not_started", message: "Driver has not started the trip." });
+            updateETA(busId, null, "Trip not started");
           }
+          updateDriverInfo(busId, data.trip);
           return;
         }
 
         const loc = data.location;
         const freshness = data.freshness || {};
         const trip = data.trip;
+        const bus = buses.find(b => b.id === busId);
+        const route = getRouteForBus(bus);
 
         // Determine status
         if (trip && trip.status === "ACTIVE") {
@@ -253,25 +328,42 @@
           updateBusStatus(busId, "NOT_STARTED", "Trip ended");
         }
 
+        // Update driver info from trip
+        updateDriverInfo(busId, trip);
+
         // Update marker
         if (card.marker && card.map) {
           card.marker.setLatLng([loc.latitude, loc.longitude]);
           card.marker.setOpacity(1);
-          card.map.setView([loc.latitude, loc.longitude], 15);
           card.lastTimestamp = loc.timestamp;
           card.lastLat = loc.latitude;
           card.lastLng = loc.longitude;
         }
 
-        // Update details
-        updateBusDetails(busId, {
-          status: trip && trip.status === "ACTIVE" ? "active" : "inactive",
-          lat: loc.latitude,
-          lng: loc.longitude,
-          accuracy: loc.accuracy,
-          ageSeconds: freshness.ageSeconds,
-          tripStatus: trip ? trip.status : null,
-        });
+        // Compute and display ETA
+        if (route && route.stops && route.stops.length > 0) {
+          const eta = estimateETA(loc.latitude, loc.longitude, route.stops, [], 25);
+          if (eta.nextStopName) {
+            updateETA(busId, eta, null);
+            highlightNextStop(busId, eta.nextStopName, route.stops);
+          } else {
+            updateETA(busId, null, "No stops on route");
+          }
+        } else {
+          updateETA(busId, null, "No route configured");
+        }
+
+        // Update time
+        const timeEl = document.getElementById("bus-time-" + busId);
+        if (timeEl) {
+          if (freshness.ageSeconds !== undefined && freshness.ageSeconds !== null) {
+            if (freshness.ageSeconds < 10) timeEl.textContent = "Just now";
+            else if (freshness.ageSeconds < 60) timeEl.textContent = freshness.ageSeconds + "s ago";
+            else timeEl.textContent = Math.floor(freshness.ageSeconds / 60) + "m ago";
+          } else {
+            timeEl.textContent = "Live";
+          }
+        }
 
       } catch (err) {
         console.error("Failed to fetch location for bus " + busId + ":", err);
@@ -301,57 +393,68 @@
       badgeEl.textContent = text;
     }
 
-    // ==================== UPDATE BUS DETAILS ====================
-    function updateBusDetails(busId, info) {
-      const detailsEl = document.getElementById("bus-details-" + busId);
-      const timeEl = document.getElementById("bus-time-" + busId);
+    // ==================== ETA DISPLAY ====================
+    function updateETA(busId, eta, message) {
+      const detailsEl = document.getElementById("bus-eta-details-" + busId);
       if (!detailsEl) return;
 
-      let rows = "";
-
-      // Coordinates
-      if (info.lat && info.lng) {
-        rows += detailRow("Latitude", info.lat.toFixed(6));
-        rows += detailRow("Longitude", info.lng.toFixed(6));
+      if (!eta || !eta.nextStopName) {
+        detailsEl.innerHTML = '<div class="eta-row"><span class="eta-label">Status</span><span class="eta-value">' + escapeHtml(message || "No data") + '</span></div>';
+        return;
       }
 
-      // Accuracy
-      if (info.accuracy) {
-        rows += detailRow("GPS Accuracy", info.accuracy.toFixed(0) + "m");
-      }
+      const etaText = eta.etaMinutes !== null && eta.etaMinutes !== undefined
+        ? eta.etaMinutes + " min"
+        : "—";
+      const distText = eta.distanceKm !== null && eta.distanceKm !== undefined
+        ? eta.distanceKm + " km"
+        : "—";
 
-      // Status message
-      if (info.message) {
-        rows += detailRow("Status", info.message);
-      }
-
-      // Trip status
-      if (info.tripStatus) {
-        rows += detailRow("Trip", info.tripStatus);
-      }
-
-      if (!rows) {
-        rows = detailRow("Status", "No data yet");
-      }
-
-      detailsEl.innerHTML = rows;
-
-      // Update time
-      if (timeEl) {
-        if (info.ageSeconds !== undefined && info.ageSeconds !== null) {
-          if (info.ageSeconds < 10) timeEl.textContent = "Just now";
-          else if (info.ageSeconds < 60) timeEl.textContent = info.ageSeconds + "s ago";
-          else timeEl.textContent = Math.floor(info.ageSeconds / 60) + "m ago";
-        } else if (info.status === "active" && info.lat) {
-          timeEl.textContent = "Live";
-        } else {
-          timeEl.textContent = "—";
-        }
-      }
+      detailsEl.innerHTML =
+        '<div class="eta-row"><span class="eta-label">Next Stop</span><span class="eta-value next-stop-badge">' + escapeHtml(eta.nextStopName) + '</span></div>' +
+        '<div class="eta-row"><span class="eta-label">ETA</span><span class="eta-value highlight">' + escapeHtml(etaText) + '</span></div>' +
+        '<div class="eta-row"><span class="eta-label">Distance</span><span class="eta-value">' + escapeHtml(distText) + '</span></div>';
     }
 
-    function detailRow(label, value) {
-      return '<div class="bus-detail-row"><span class="bus-detail-label">' + escapeHtml(label) + '</span><span class="bus-detail-value">' + escapeHtml(value) + '</span></div>';
+    function highlightNextStop(busId, stopName, stops) {
+      const card = busCards[busId];
+      if (!card || !card.landmarkMarkers || card.landmarkMarkers.length === 0) return;
+
+      card.landmarkMarkers.forEach((marker, idx) => {
+        if (stops[idx].name === stopName) {
+          // Highlight: replace icon with glowing version
+          const icon = L.divIcon({
+            className: "",
+            html: '<div class="landmark-marker next-stop">' + (idx + 1) + '</div>',
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+          });
+          marker.setIcon(icon);
+          marker.setZIndexOffset(1000);
+        } else {
+          const icon = L.divIcon({
+            className: "",
+            html: '<div class="landmark-marker">' + (idx + 1) + '</div>',
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+          });
+          marker.setIcon(icon);
+          marker.setZIndexOffset(0);
+        }
+      });
+    }
+
+    // ==================== DRIVER INFO ====================
+    function updateDriverInfo(busId, trip) {
+      const el = document.getElementById("bus-driver-" + busId);
+      if (!el) return;
+      if (trip && trip.driverName) {
+        el.innerHTML = "Driver: " + escapeHtml(trip.driverName) + " (" + escapeHtml(trip.driverPhone || "N/A") + ")";
+      } else if (trip && trip.driverId) {
+        el.innerHTML = "Driver: Loading...";
+      } else {
+        el.innerHTML = "Driver: Unassigned";
+      }
     }
 
     // ==================== SOCKET.IO ====================
@@ -385,11 +488,13 @@
         const card = busCards[busId];
         if (!card) return;
 
+        const bus = buses.find(b => b.id === busId);
+        const route = getRouteForBus(bus);
+
         // Move marker
         if (card.marker && card.map) {
           card.marker.setLatLng([data.latitude, data.longitude]);
           card.marker.setOpacity(1);
-          card.map.setView([data.latitude, data.longitude], 15);
           card.lastTimestamp = data.timestamp || new Date().toISOString();
           card.lastLat = data.latitude;
           card.lastLng = data.longitude;
@@ -398,15 +503,24 @@
         // Update status to LIVE
         updateBusStatus(busId, "LIVE", "Live");
 
-        // Update details
-        updateBusDetails(busId, {
-          status: "active",
-          lat: data.latitude,
-          lng: data.longitude,
-          accuracy: data.accuracy,
-          ageSeconds: 0,
-          tripStatus: "ACTIVE",
-        });
+        // Compute and display ETA
+        if (route && route.stops && route.stops.length > 0) {
+          const eta = estimateETA(data.latitude, data.longitude, route.stops, [], 25);
+          if (eta.nextStopName) {
+            updateETA(busId, eta, null);
+            highlightNextStop(busId, eta.nextStopName, route.stops);
+          } else {
+            updateETA(busId, null, "No stops on route");
+          }
+        } else {
+          updateETA(busId, null, "No route configured");
+        }
+
+        // Update time
+        const timeEl = document.getElementById("bus-time-" + busId);
+        if (timeEl) {
+          timeEl.textContent = "Just now";
+        }
       });
 
       socket.on("trip:status", (data) => {

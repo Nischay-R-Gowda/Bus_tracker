@@ -121,6 +121,13 @@ router.get("/:busId", authenticate, (req, res) => {
     if (ageSeconds > 60) freshnessStatus = "STALE";
     else if (ageSeconds > 30) freshnessStatus = "AGING";
 
+    // Enrich response with trip and driver info
+    let trip = db.getActiveTripByBus(busId);
+    if (trip && trip.driverId) {
+      const driver = db.findUserById(trip.driverId);
+      trip = { ...trip, driverName: driver ? driver.name : null, driverPhone: driver ? driver.phone : null };
+    }
+
     res.json({
       location,
       bus: { id: bus.id, busNumber: bus.busNumber, status: bus.status },
@@ -129,6 +136,7 @@ router.get("/:busId", authenticate, (req, res) => {
         ageSeconds,
         ageText: ageSeconds < 60 ? `${ageSeconds} seconds ago` : `${Math.floor(ageSeconds / 60)} minutes ago`,
       },
+      trip: trip ? { id: trip.id, status: trip.status, startTime: trip.startTime, driverId: trip.driverId, driverName: trip.driverName, driverPhone: trip.driverPhone } : null,
     });
   } catch (err) {
     console.error("Get location error:", err);

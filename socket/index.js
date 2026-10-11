@@ -50,6 +50,18 @@ function initializeSocket(httpServer) {
         });
       }
 
+      // Send current trip status if a trip is active
+      const trip = db.getActiveTripByBus(busId);
+      if (trip) {
+        const driver = trip.driverId ? db.findUserById(trip.driverId) : null;
+        const enrichedTrip = {
+          ...trip,
+          driverName: driver ? driver.name : null,
+          driverPhone: driver ? driver.phone : null,
+        };
+        socket.emit("trip:status", { busId, status: "STARTED", trip: enrichedTrip });
+      }
+
       socket.emit("joined", { room: roomName, message: `Tracking ${roomName}` });
     });
 
